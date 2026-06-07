@@ -398,6 +398,21 @@ label span,
   cursor: pointer;
 }
 
+.symbol-trigger.has-icon {
+  padding: 0 6px;
+}
+
+.lucide-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.trigger-icon {
+  width: 19px;
+  height: 19px;
+}
+
 .sleep-menu .symbol-trigger {
   color: var(--green-dark);
   background: var(--soft-green);
@@ -426,6 +441,21 @@ label span,
   padding: 0 10px;
   text-align: left;
   background: transparent;
+}
+
+.menu-option-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-option-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.menu-option-label {
+  display: inline-block;
 }
 
 .popup-menu button.selected,

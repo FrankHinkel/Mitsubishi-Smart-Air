@@ -1,11 +1,11 @@
 "use strict";
 
 const MODE_OPTIONS = [
-  { value: 0, label: "Auto", symbol: "A" },
-  { value: 1, label: "Cool", symbol: "C" },
-  { value: 2, label: "Heat", symbol: "H" },
-  { value: 3, label: "Fan", symbol: "F" },
-  { value: 4, label: "Dry", symbol: "D" },
+  { value: 0, label: "Auto", icon: "sun-snow" },
+  { value: 1, label: "Cool", icon: "snowflake" },
+  { value: 2, label: "Heat", icon: "sun" },
+  { value: 3, label: "Fan", icon: "fan" },
+  { value: 4, label: "Dry", icon: "droplets" },
 ];
 const FAN_OPTIONS = [
   { value: 0, label: "Auto", symbol: "A" },
@@ -28,6 +28,55 @@ const TEMP_MAX = 30;
 const TEMP_STEP = 0.5;
 const DEVICE_WRITE_DELAY_MS = 1400;
 const STATUS_POLL_INTERVAL_MS = 60000;
+
+const LUCIDE_ICON_NODES = {
+  "sun-snow": [
+    ["path", { d: "M10 21v-1" }],
+    ["path", { d: "M10 4V3" }],
+    ["path", { d: "M10 9a3 3 0 0 0 0 6" }],
+    ["path", { d: "m14 20 1.25-2.5L18 18" }],
+    ["path", { d: "m14 4 1.25 2.5L18 6" }],
+    ["path", { d: "m17 21-3-6 1.5-3H22" }],
+    ["path", { d: "m17 3-3 6 1.5 3" }],
+    ["path", { d: "M2 12h1" }],
+    ["path", { d: "m20 10-1.5 2 1.5 2" }],
+    ["path", { d: "m3.64 18.36.7-.7" }],
+    ["path", { d: "m4.34 6.34-.7-.7" }],
+  ],
+  snowflake: [
+    ["path", { d: "m10 20-1.25-2.5L6 18" }],
+    ["path", { d: "M10 4 8.75 6.5 6 6" }],
+    ["path", { d: "m14 20 1.25-2.5L18 18" }],
+    ["path", { d: "m14 4 1.25 2.5L18 6" }],
+    ["path", { d: "m17 21-3-6h-4" }],
+    ["path", { d: "m17 3-3 6 1.5 3" }],
+    ["path", { d: "M2 12h6.5L10 9" }],
+    ["path", { d: "m20 10-1.5 2 1.5 2" }],
+    ["path", { d: "M22 12h-6.5L14 15" }],
+    ["path", { d: "m4 10 1.5 2L4 14" }],
+    ["path", { d: "m7 21 3-6-1.5-3" }],
+    ["path", { d: "m7 3 3 6h4" }],
+  ],
+  sun: [
+    ["circle", { cx: "12", cy: "12", r: "4" }],
+    ["path", { d: "M12 2v2" }],
+    ["path", { d: "M12 20v2" }],
+    ["path", { d: "m4.93 4.93 1.41 1.41" }],
+    ["path", { d: "m17.66 17.66 1.41 1.41" }],
+    ["path", { d: "M2 12h2" }],
+    ["path", { d: "M20 12h2" }],
+    ["path", { d: "m6.34 17.66-1.41 1.41" }],
+    ["path", { d: "m19.07 4.93-1.41 1.41" }],
+  ],
+  fan: [
+    ["path", { d: "M10.827 16.379a6.082 6.082 0 0 1-8.618-7.002l5.412 1.45a6.082 6.082 0 0 1 7.002-8.618l-1.45 5.412a6.082 6.082 0 0 1 8.618 7.002l-5.412-1.45a6.082 6.082 0 0 1-7.002 8.618l1.45-5.412Z" }],
+    ["path", { d: "M12 12v.01" }],
+  ],
+  droplets: [
+    ["path", { d: "M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z" }],
+    ["path", { d: "M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97" }],
+  ],
+};
 
 const els = {
   appView: document.querySelector("#appView"),
@@ -91,6 +140,34 @@ function createElement(tag, options = {}) {
     element.hidden = Boolean(options.hidden);
   }
   return element;
+}
+
+function createLucideIcon(name, extraClassName = "") {
+  const nodes = LUCIDE_ICON_NODES[name];
+  if (!nodes) {
+    return createElement("span", { className: extraClassName, text: "?" });
+  }
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.className = ["lucide-icon", extraClassName].filter(Boolean).join(" ");
+
+  for (const [tag, attributes] of nodes) {
+    const child = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      child.setAttribute(key, value);
+    }
+    svg.append(child);
+  }
+
+  return svg;
 }
 
 function currentStableScrollSnapshot() {
@@ -422,9 +499,14 @@ function closeOpenMenus(except = null) {
 function renderSymbolMenu(label, value, options, onSelect) {
   const selected = findOption(options, value);
   const wrapper = createElement("div", { className: "symbol-menu" });
-  const trigger = createElement("button", { className: "symbol-trigger", text: selected.symbol });
+  const trigger = createElement("button", { className: `symbol-trigger${selected.icon ? " has-icon" : ""}` });
   trigger.type = "button";
   trigger.setAttribute("aria-label", `${label}: ${selected.label}`);
+  if (selected.icon) {
+    trigger.append(createLucideIcon(selected.icon, "trigger-icon"));
+  } else {
+    trigger.textContent = selected.symbol;
+  }
   preventPointerFocusScroll(trigger);
   const menu = createElement("div", { className: "popup-menu", hidden: true });
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
@@ -434,8 +516,18 @@ function renderSymbolMenu(label, value, options, onSelect) {
     restoreScroll(scroll);
   }));
   for (const option of options) {
-    const button = createElement("button", { className: Number(option.value) === Number(value) ? "selected" : "", text: option.label });
+    const button = createElement("button", { className: Number(option.value) === Number(value) ? "selected" : "" });
     button.type = "button";
+    if (option.icon) {
+      const content = createElement("span", { className: "menu-option-content" });
+      content.append(
+        createLucideIcon(option.icon, "menu-option-icon"),
+        createElement("span", { className: "menu-option-label", text: option.label })
+      );
+      button.append(content);
+    } else {
+      button.textContent = option.label;
+    }
     preventPointerFocusScroll(button);
     button.addEventListener("click", guardedControlClick(button, () => {
       menu.hidden = true;
