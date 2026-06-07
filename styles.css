@@ -157,6 +157,13 @@ label span,
   gap: 8px;
 }
 
+.top-actions button {
+  display: grid;
+  min-width: 42px;
+  place-items: center;
+  padding: 0;
+}
+
 .primary {
   color: #ffffff;
   background: var(--green);
@@ -249,10 +256,28 @@ label span,
 }
 
 .device-title h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   overflow-wrap: anywhere;
   margin: 0;
   font-size: 1.02rem;
   line-height: 1.15;
+}
+
+.device-inline-temp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.device-inline-temp-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .device-title p,
@@ -265,10 +290,8 @@ label span,
 }
 
 .switch {
-  display: inline-grid;
-  grid-template-columns: auto;
-  justify-items: center;
-  gap: 3px;
+  display: inline-flex;
+  align-items: center;
   cursor: pointer;
 }
 
@@ -307,13 +330,6 @@ label span,
 
 .switch input:checked + .switch-track::after {
   left: 24px;
-}
-
-.switch-text {
-  color: var(--muted);
-  font-size: 0.66rem;
-  font-weight: 800;
-  text-transform: uppercase;
 }
 
 .device-facts {
@@ -406,6 +422,11 @@ label span,
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
+}
+
+.button-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .trigger-icon {

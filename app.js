@@ -30,6 +30,24 @@ const DEVICE_WRITE_DELAY_MS = 1400;
 const STATUS_POLL_INTERVAL_MS = 60000;
 
 const LUCIDE_ICON_NODES = {
+  "refresh-cw": [
+    ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" }],
+    ["path", { d: "M21 3v5h-5" }],
+    ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" }],
+    ["path", { d: "M8 16H3v5" }],
+  ],
+  pencil: [
+    ["path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }],
+    ["path", { d: "m15 5 4 4" }],
+  ],
+  "log-out": [
+    ["path", { d: "m16 17 5-5-5-5" }],
+    ["path", { d: "M21 12H9" }],
+    ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }],
+  ],
+  thermometer: [
+    ["path", { d: "M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" }],
+  ],
   "sun-snow": [
     ["path", { d: "M10 21v-1" }],
     ["path", { d: "M10 4V3" }],
@@ -157,7 +175,7 @@ function createLucideIcon(name, extraClassName = "") {
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
   svg.setAttribute("aria-hidden", "true");
-  svg.className = ["lucide-icon", extraClassName].filter(Boolean).join(" ");
+  svg.setAttribute("class", ["lucide-icon", extraClassName].filter(Boolean).join(" "));
 
   for (const [tag, attributes] of nodes) {
     const child = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -168,6 +186,15 @@ function createLucideIcon(name, extraClassName = "") {
   }
 
   return svg;
+}
+
+function setButtonIcon(button, iconName, label) {
+  if (!button) {
+    return;
+  }
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
+  button.replaceChildren(createLucideIcon(iconName, "button-icon"));
 }
 
 function currentStableScrollSnapshot() {
@@ -573,7 +600,17 @@ function renderDeviceCard(device) {
 
   const header = createElement("header", { className: "device-header" });
   const titleBlock = createElement("div", { className: "device-title" });
-  titleBlock.append(createElement("h2", { text: device.name || `WF-RAC ${device.ipAddress}` }));
+  const title = createElement("h2");
+  title.append(document.createTextNode(device.name || `WF-RAC ${device.ipAddress}`));
+  if (Number.isFinite(status.indoorTemp)) {
+    const inlineTemp = createElement("span", { className: "device-inline-temp" });
+    inlineTemp.append(
+      createLucideIcon("thermometer", "device-inline-temp-icon"),
+      createElement("span", { text: formatTemp(status.indoorTemp) })
+    );
+    title.append(inlineTemp);
+  }
+  titleBlock.append(title);
 
   const switchLabel = createElement("label", { className: "switch" });
   const power = document.createElement("input");
@@ -586,13 +623,11 @@ function renderDeviceCard(device) {
   });
   switchLabel.append(
     power,
-    createElement("span", { className: "switch-track" }),
-    createElement("span", { className: "switch-text", text: status.operation ? "On" : "Off" })
+    createElement("span", { className: "switch-track" })
   );
   header.append(titleBlock, switchLabel);
 
   const facts = createElement("div", { className: "device-facts" });
-  facts.append(renderFact("Room", formatTemp(status.indoorTemp)));
   if (Number.isFinite(status.electric) && status.electric > 0) {
     facts.append(renderFact("Usage", formatUsage(status.electric)));
   }
@@ -1165,6 +1200,9 @@ async function bootApp() {
 }
 
 function bindEvents() {
+  setButtonIcon(els.refreshAllButton, "refresh-cw", "Refresh all devices");
+  setButtonIcon(els.editListButton, "pencil", "Edit device list");
+  setButtonIcon(els.logoutButton, "log-out", "Logout");
   els.loginForm.addEventListener("submit", login);
   els.logoutButton.addEventListener("click", logout);
   els.refreshAllButton.addEventListener("click", () => {

@@ -76,6 +76,8 @@ The provided compose file now defaults `SCAN_SUBNETS` to `192.168.178.0/24` for 
 
 If discovery still misses a unit, open `Edit list` and add the IP address manually. The server probes the address immediately and stores the device with its detected Aircon ID and protocol data.
 
+Login sessions are persistent by default with a very long-lived HttpOnly cookie, so one login is normally enough unless you explicitly log out.
+
 ## Configuration
 
 Useful environment variables:
@@ -130,6 +132,265 @@ In the tested setup the devices respond over HTTP on port `51443`:
 ```text
 http://<device-ip>:51443/beaver/command/...
 ```
+
+## Device protocol
+
+The low-level device communication lives in [device-api.js](device-api.js). The server never talks to the WF-RAC through browser fetch. Instead it calls `curl` locally and sends JSON commands to:
+
+```text
+http(s)://<device-ip>:51443/beaver/command/<command>
+```
+
+Every request uses these headers:
+
+```text
+Accept: */*
+Connection: close
+Content-Type: application/json; charset=utf-8
+User-Agent: smartmair_app[1.4.005]
+```
+
+Every request body starts with the same envelope:
+
+```json
+{
+	"apiVer": "1.0",
+	"command": "getAirconStat",
+	"deviceId": "Living Room",
+	"operatorId": "web-...",
+	"timestamp": 1717790000
+}
+```
+
+`deviceId` is the visible room name. `operatorId` is the local remote identifier. When old UUID-style IDs cause `HTTP 501: Not supported this command`, the implementation automatically retries once with a shorter freshly generated operator ID.
+
+## Commands sent by the app
+
+The application currently sends exactly these WF-RAC commands:
+
+| Command | When sent | Request `contents` | Important response fields |
+| --- | --- | --- | --- |
+| `getDeviceInfo` | Manual add, scan, initial identification | none | `contents.airconId`, `contents.macAddress`, `contents.apMode` |
+| `getAirconStat` | Refresh, polling, fallback for `getDeviceInfo` | usually `{ "airconId": "..." }`, fallback also without `contents` | `contents.airconId`, `contents.airconStat`, `contents.firmType`, `contents.wireless`, `contents.mcu`, `contents.remoteList`, `contents.numOfAccount` |
+| `updateAccountInfo` | Register this web app as a writable remote | `{ "accountId": operatorId, "airconId": airconId, "remote": 0, "timezone": "Europe/Berlin" }` | mainly `result`; `2` means remote limit reached |
+| `setAirconStat` | Apply power/mode/temperature/fan changes | `{ "airconId": airconId, "airconStat": "<base64 frame>" }` | updated `contents.airconStat` for the confirmed state |
+
+There are no extra hidden write commands in the app. Everything writable goes through `setAirconStat`.
+
+## Responses the app expects
+
+The server handles these reply shapes:
+
+| Response source | Relevant fields |
+| --- | --- |
+| `getDeviceInfo` | `result`, `contents.airconId`, `contents.macAddress`, `contents.apMode` |
+| `getAirconStat` | `result`, `contents.airconId`, `contents.airconStat`, `contents.firmType`, `contents.wireless`, `contents.mcu`, `contents.remoteList`, `contents.numOfAccount` |
+| `updateAccountInfo` | `result` only is usually enough |
+| `setAirconStat` | `result`, `contents.airconId`, `contents.airconStat` |
+
+The implementation is intentionally tolerant:
+
+- `getDeviceInfo` falls back to `getAirconStat` if the firmware rejects it.
+- `getAirconStat` is accepted as long as `contents.airconStat` exists, even when the device returns a non-zero `result` on some firmwares.
+- `setAirconStat` is considered successful when the response contains a valid `airconStat`, otherwise `result` must be `0`.
+
+## Internal status model
+
+The server converts the Mitsubishi binary status into this normalized model:
+
+```json
+{
+	"operation": false,
+	"operationMode": 1,
+	"presetTemp": 22,
+	"airFlow": 0,
+	"windDirectionUD": 0,
+	"windDirectionLR": 0,
+	"entrust": false,
+	"coolHotJudge": true,
+	"modelNo": 0,
+	"isVacantProperty": 0,
+	"isSelfCleanOperation": false,
+	"isSelfCleanReset": false,
+	"indoorTemp": null,
+	"outdoorTemp": null,
+	"electric": 0,
+	"errorCode": "00"
+}
+```
+
+## `airconStat` encoding and decoding
+
+`airconStat` is a base64-encoded Mitsubishi payload. The app decodes it in `DeviceStatus.fromBase64()` and re-encodes it in `DeviceStatus.toBase64()`.
+
+Implementation steps:
+
+1. Base64 is decoded into bytes.
+2. `dataStart = bytes[18] * 4 + 21` locates the status payload.
+3. The payload bytes are mapped into the normalized model.
+4. For writes, the app creates two 18-byte blocks:
+	 `commandToBytes(status)`
+	 `receiveToBytes(status)`
+5. Each block is framed with `1,255,255,255,255` plus CRC16-CCITT.
+6. Both frames are concatenated and base64-encoded again.
+
+## Value mappings used by the app
+
+### Power
+
+- Decode: `(data[2] & 3) === 1`
+- Encode command block: `3` means on, `2` means off
+- Encode receive block: `1` means on, `0` means off
+
+### Operation mode
+
+Normalized values:
+
+| Value | Meaning |
+| --- | --- |
+| `0` | Auto |
+| `1` | Cool |
+| `2` | Heat |
+| `3` | Fan |
+| `4` | Dry |
+
+Decode from receive bits:
+
+| Bits | Mode |
+| --- | --- |
+| `0` | Auto |
+| `8` | Cool |
+| `16` | Heat |
+| `12` | Fan |
+| `4` | Dry |
+
+Encode to command bits:
+
+| Mode | Bits |
+| --- | --- |
+| Auto | `32` |
+| Cool | `40` |
+| Heat | `48` |
+| Fan | `44` |
+| Dry | `36` |
+
+### Fan speed
+
+Normalized values:
+
+| Value | Meaning |
+| --- | --- |
+| `0` | Auto |
+| `1` | Quiet |
+| `2` | Low |
+| `3` | High |
+| `4` | Powerful |
+
+Decode from `data[3] & 15` using `[7, 0, 1, 2, 6]`.
+
+Encode command bits:
+
+| Value | Bits |
+| --- | --- |
+| 0 | `15` |
+| 1 | `8` |
+| 2 | `9` |
+| 3 | `10` |
+| 4 | `14` |
+
+### Vertical swing
+
+Normalized values:
+
+| Value | Meaning |
+| --- | --- |
+| `0` | Auto |
+| `1` | Top |
+| `2` | Mid |
+| `3` | Normal |
+| `4` | Bottom |
+
+Decode:
+
+- if `(data[2] & 192) === 64` then Auto
+- otherwise `data[3] & 240` mapped from `[0, 16, 32, 48]` with offset `1`
+
+### Horizontal swing
+
+Normalized values:
+
+| Value | Meaning |
+| --- | --- |
+| `0` | Auto |
+| `1..7` | Fixed positions / sweep modes |
+
+Decode:
+
+- if `(data[12] & 3) === 1` then Auto
+- otherwise `data[11] & 31` mapped from `[0,1,2,3,4,5,6]` with offset `1`
+
+### Set temperature
+
+- Decode: `data[4] / 2`
+- Encode: `Math.floor(presetTemp / 0.5)`
+- In the command block the encoded value is offset by `128`
+- In fan-only mode the app writes `25.0` as fallback because the device does not use a meaningful target temperature there
+
+Examples:
+
+| Target | Encoded receive byte | Encoded command byte |
+| --- | --- | --- |
+| `18.0` | `36` | `164` |
+| `22.0` | `44` | `172` |
+| `25.0` | `50` | `178` |
+
+### Error code conversion
+
+- `data[6] & 127` gives the numeric code
+- `0` becomes `00`
+- if bit `128` is not set: `Mxx`
+- if bit `128` is set: `Exx`
+
+### Energy usage
+
+The app scans the telemetry blocks after the status bytes.
+
+- marker `148`, kind `16`
+- raw value is little-endian: `(value2 << 8) | value`
+- final value is `raw * 0.25`
+
+### Indoor and outdoor temperature tables
+
+The device does not send temperatures as plain Celsius values. It sends table indexes.
+
+- marker `128`, kind `16` -> outdoor temperature index into `OUTDOOR_TEMP`
+- marker `128`, kind `32` -> indoor temperature index into `INDOOR_TEMP`
+
+Both lookup tables are implemented directly in [device-api.js](device-api.js). They are not a simple linear formula.
+
+Examples from the implementation:
+
+| Table | Example index | Celsius |
+| --- | --- | --- |
+| `OUTDOOR_TEMP` | `90` | `0.0` |
+| `OUTDOOR_TEMP` | `176` | `20.0` |
+| `INDOOR_TEMP` | `69` | `0.0` |
+| `INDOOR_TEMP` | `144` | `20.0` |
+
+That is why the app must use the hardcoded tables instead of a quick formula.
+
+## Registration and writable control
+
+Writable commands are only reliable after `updateAccountInfo` has registered the current `operatorId` as a remote. The app then also inspects `remoteList` from `getAirconStat` and prefers a confirmed remote ID when applying writes.
+
+## Protocol fallback logic
+
+The technical fallback order is:
+
+1. Use remembered protocol for the device when known.
+2. In `auto` mode try HTTPS first, then HTTP.
+3. Retry with a shorter operator ID if the firmware rejects the legacy one.
+4. Fall back from `getDeviceInfo` to `getAirconStat` if necessary.
 
 ## References
 
