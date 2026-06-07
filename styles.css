@@ -191,7 +191,13 @@ label span,
 }
 
 .top-zoom-menu {
+  display: grid;
+  min-width: 0;
   position: relative;
+}
+
+.top-actions > .top-zoom-menu > button {
+  width: 100%;
 }
 
 .zoom-menu {
