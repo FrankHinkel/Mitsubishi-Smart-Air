@@ -7,12 +7,13 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json ./
-COPY app.js database.js device-api.js index.html server.js styles.css ./
+COPY app.js database.js device-api.js index.html measures.js server.js styles.css ./
 
-RUN mkdir -p /data
+RUN mkdir -p /data /data/measures
 
 ENV DATA_DIR=/data
 ENV HOST=0.0.0.0
+ENV MEASURES_DIR=/data/measures
 ENV PORT=13920
 
 EXPOSE 13920

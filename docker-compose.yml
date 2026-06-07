@@ -7,6 +7,7 @@ services:
     environment:
       DATA_DIR: /data
       HOST: 0.0.0.0
+      MEASURES_DIR: /data/measures
       PORT: 13920
       DEFAULT_ADMIN_USERNAME: admin
       DEFAULT_ADMIN_PASSWORD: admin
