@@ -12,6 +12,12 @@
   --red: #b33232;
   --soft-green: #e7f4f1;
   --soft-blue: #e8f0fa;
+  --soft-cool: rgba(49, 95, 159, 0.3);
+  --soft-dry: rgba(0, 127, 120, 0.3);
+  --soft-fan: rgba(23, 32, 28, 0.3);
+  --soft-heat: rgba(168, 111, 0, 0.3);
+  --soft-off: rgba(99, 113, 105, 0.2);
+  --soft-auto: rgba(0, 127, 120, 0.3);
   --soft-red: #fff0f0;
   --shadow: 0 16px 42px rgba(28, 38, 34, 0.1);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -244,6 +250,36 @@ label span,
   box-shadow: 0 6px 16px rgba(28, 38, 34, 0.05);
 }
 
+.device-card[data-mode-tone="off"] {
+  background: var(--soft-off);
+  border-color: rgba(99, 113, 105, 0.24);
+}
+
+.device-card[data-mode-tone="cool"] {
+  background: var(--soft-cool);
+  border-color: rgba(49, 95, 159, 0.24);
+}
+
+.device-card[data-mode-tone="heat"] {
+  background: var(--soft-heat);
+  border-color: rgba(168, 111, 0, 0.24);
+}
+
+.device-card[data-mode-tone="fan"] {
+  background: var(--soft-fan);
+  border-color: rgba(23, 32, 28, 0.2);
+}
+
+.device-card[data-mode-tone="dry"] {
+  background: var(--soft-dry);
+  border-color: rgba(0, 127, 120, 0.24);
+}
+
+.device-card[data-mode-tone="auto"] {
+  background: var(--soft-auto);
+  border-color: rgba(0, 127, 120, 0.18);
+}
+
 .device-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -255,11 +291,15 @@ label span,
   min-width: 0;
 }
 
-.device-title h2 {
+.device-title-line {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
+  min-width: 0;
+}
+
+.device-title h2 {
   overflow-wrap: anywhere;
   margin: 0;
   font-size: 1.02rem;
@@ -268,16 +308,24 @@ label span,
 
 .device-inline-temp {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
+  flex-direction: row-reverse;
   gap: 4px;
   color: var(--muted);
   font-size: 0.92rem;
   font-weight: 750;
+  line-height: 1;
+}
+
+.device-inline-temp-value {
+  line-height: 1;
 }
 
 .device-inline-temp-icon {
   width: 14px;
   height: 14px;
+  flex: 0 0 auto;
+  transform: translateY(1px);
 }
 
 .device-title p,
@@ -506,6 +554,20 @@ label span,
   padding: 16px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.app-settings-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfb;
+}
+
+.app-title-field {
+  display: grid;
+  gap: 6px;
 }
 
 .manual-add-form {

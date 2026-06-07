@@ -16,6 +16,7 @@ const {
   registerRemote,
 } = require("./device-api");
 const db = require("./database");
+const measures = require("./measures");
 
 const execFileAsync = promisify(execFile);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -191,9 +192,18 @@ function currentUser(request) {
 
 function publicApiRoute(method, pathname) {
   return (method === "GET" && pathname === "/api/health")
+    || (method === "GET" && pathname === "/api/settings")
     || (method === "GET" && pathname === "/api/me")
     || (method === "POST" && pathname === "/api/login")
     || (method === "POST" && pathname === "/api/logout");
+}
+
+function recordMeasurements(device) {
+  try {
+    measures.recordDeviceMeasurements(device);
+  } catch {
+    // Measurement logging must never block control or refresh flows.
+  }
 }
 
 function safeDevice(device) {
@@ -646,6 +656,7 @@ async function refreshDeviceCache(device) {
     status: result.status,
     debug: result.debug,
   });
+  recordMeasurements(saved);
   return {
     debug: result.debug,
     saved,
@@ -698,6 +709,7 @@ async function applyDeviceStatus(device, nextStatus, options = {}) {
     status: result.status,
     debug: result.debug,
   });
+  recordMeasurements(saved);
   return {
     debug: result.debug,
     saved,
@@ -816,9 +828,17 @@ async function handleApi(request, response, pathname, url) {
     sendJson(response, 200, {
       ok: true,
       dbPath: db.DB_PATH,
+      measuresDir: measures.MEASURES_DIR,
       port: PORT,
       statusPollIntervalMs: STATUS_POLL_INTERVAL_MS,
       sleepTimerCheckIntervalMs: SLEEP_TIMER_CHECK_INTERVAL_MS,
+    });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/settings") {
+    sendJson(response, 200, {
+      settings: db.getAppSettings(),
     });
     return;
   }
@@ -908,8 +928,12 @@ async function handleApi(request, response, pathname, url) {
   if (request.method === "POST" && pathname === "/api/devices/list") {
     const payload = await parseJsonBody(request);
     const devices = db.updateDeviceList(Array.isArray(payload.devices) ? payload.devices : []);
+    const settings = db.saveAppSettings({
+      title: payload.title,
+    });
     sendJson(response, 200, {
       devices: devices.map(safeDevice),
+      settings,
     });
     return;
   }

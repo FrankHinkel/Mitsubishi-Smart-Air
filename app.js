@@ -28,6 +28,7 @@ const TEMP_MAX = 30;
 const TEMP_STEP = 0.5;
 const DEVICE_WRITE_DELAY_MS = 1400;
 const STATUS_POLL_INTERVAL_MS = 60000;
+const DEFAULT_APP_TITLE = "Smart Air";
 
 const LUCIDE_ICON_NODES = {
   "refresh-cw": [
@@ -97,7 +98,9 @@ const LUCIDE_ICON_NODES = {
 };
 
 const els = {
+  appTitleInput: document.querySelector("#appTitleInput"),
   appView: document.querySelector("#appView"),
+  brandTitle: document.querySelector("#brandTitle"),
   closeEditButton: document.querySelector("#closeEditButton"),
   deviceList: document.querySelector("#deviceList"),
   editList: document.querySelector("#editList"),
@@ -111,6 +114,7 @@ const els = {
   loginError: document.querySelector("#loginError"),
   loginForm: document.querySelector("#loginForm"),
   loginPassword: document.querySelector("#loginPassword"),
+  loginTitle: document.querySelector("#loginTitle"),
   loginUsername: document.querySelector("#loginUsername"),
   loginView: document.querySelector("#loginView"),
   logoutButton: document.querySelector("#logoutButton"),
@@ -130,6 +134,9 @@ let devices = [];
 let allDevices = [];
 let editItems = [];
 let editOpen = false;
+let appSettings = {
+  title: DEFAULT_APP_TITLE,
+};
 const deviceErrors = new Map();
 const pendingDeviceWrites = new Map();
 let statusPollTimer = null;
@@ -335,6 +342,48 @@ function defaultStatus() {
     windDirectionLR: 0,
     windDirectionUD: 0,
   };
+}
+
+function normalizeAppTitle(value) {
+  const title = String(value || "").trim();
+  return title || DEFAULT_APP_TITLE;
+}
+
+function applyAppSettings(settings = {}) {
+  appSettings = {
+    ...appSettings,
+    title: normalizeAppTitle(settings.title),
+  };
+  document.title = appSettings.title;
+  if (els.loginTitle) {
+    els.loginTitle.textContent = appSettings.title;
+  }
+  if (els.brandTitle) {
+    els.brandTitle.textContent = appSettings.title;
+  }
+  if (els.appTitleInput && document.activeElement !== els.appTitleInput) {
+    els.appTitleInput.value = appSettings.title;
+  }
+}
+
+function modeTone(status) {
+  if (!status.operation) {
+    return "off";
+  }
+
+  if (Number(status.operationMode) === 1) {
+    return "cool";
+  }
+  if (Number(status.operationMode) === 2) {
+    return "heat";
+  }
+  if (Number(status.operationMode) === 3) {
+    return "fan";
+  }
+  if (Number(status.operationMode) === 4) {
+    return "dry";
+  }
+  return "auto";
 }
 
 function statusOf(device) {
@@ -597,20 +646,26 @@ function renderSleepMenu(device) {
 function renderDeviceCard(device) {
   const status = statusOf(device);
   const card = createElement("article", { className: "device-card" });
+  card.dataset.modeTone = modeTone(status);
 
   const header = createElement("header", { className: "device-header" });
   const titleBlock = createElement("div", { className: "device-title" });
-  const title = createElement("h2");
-  title.append(document.createTextNode(device.name || `WF-RAC ${device.ipAddress}`));
+  const titleLine = createElement("div", { className: "device-title-line" });
+  const title = createElement("h2", { text: device.name || `WF-RAC ${device.ipAddress}` });
+  titleLine.append(title);
   if (Number.isFinite(status.indoorTemp)) {
     const inlineTemp = createElement("span", { className: "device-inline-temp" });
+    const inlineTempValue = createElement("span", {
+      className: "device-inline-temp-value",
+      text: formatTemp(status.indoorTemp),
+    });
     inlineTemp.append(
       createLucideIcon("thermometer", "device-inline-temp-icon"),
-      createElement("span", { text: formatTemp(status.indoorTemp) })
+      inlineTempValue
     );
-    title.append(inlineTemp);
+    titleLine.append(inlineTemp);
   }
-  titleBlock.append(title);
+  titleBlock.append(titleLine);
 
   const switchLabel = createElement("label", { className: "switch" });
   const power = document.createElement("input");
@@ -1104,10 +1159,13 @@ async function openEditList() {
   }));
   editOpen = true;
   els.editPanel.hidden = false;
+  if (els.appTitleInput) {
+    els.appTitleInput.value = appSettings.title;
+  }
   renderEditList();
   renderDevices();
-  if (els.manualIpAddress) {
-    els.manualIpAddress.focus();
+  if (els.appTitleInput) {
+    els.appTitleInput.focus();
   }
 }
 
@@ -1130,9 +1188,13 @@ async function saveEditList() {
       method: "POST",
       body: {
         devices: payload,
+        title: els.appTitleInput ? els.appTitleInput.value.trim() : appSettings.title,
       },
     });
     allDevices = Array.isArray(data.devices) ? data.devices : [];
+    if (data.settings) {
+      applyAppSettings(data.settings);
+    }
     await loadDevices();
     closeEditList();
     setMessage("");
@@ -1185,7 +1247,6 @@ async function logout() {
 }
 
 async function bootApp() {
-  await apiFetch("/api/me");
   showApp();
   startCountdownClock();
   await loadDevices();
@@ -1197,6 +1258,11 @@ async function bootApp() {
   } else {
     startStatusPolling();
   }
+}
+
+async function loadSettings() {
+  const data = await apiFetch("/api/settings");
+  applyAppSettings(data.settings || {});
 }
 
 function bindEvents() {
@@ -1232,6 +1298,10 @@ function bindEvents() {
 }
 
 bindEvents();
-apiFetch("/api/me")
-  .then(() => bootApp())
-  .catch(() => showLogin());
+loadSettings()
+  .catch(() => {})
+  .finally(() => {
+    apiFetch("/api/me")
+      .then(() => bootApp())
+      .catch(() => showLogin());
+  });

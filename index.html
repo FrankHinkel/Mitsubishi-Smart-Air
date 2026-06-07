@@ -11,7 +11,7 @@
       <section class="login-view" id="loginView">
         <form class="login-panel" id="loginForm">
           <p class="eyebrow">WF-RAC local</p>
-          <h1>Smart Air</h1>
+          <h1 id="loginTitle">Smart Air</h1>
 
           <label>
             <span>Username</span>
@@ -33,7 +33,7 @@
           <div class="brand">
             <p class="eyebrow">Mitsubishi local control</p>
             <div class="brand-line">
-              <h1>Smart Air</h1>
+              <h1 id="brandTitle">Smart Air</h1>
               <output id="outdoorSummary">Outdoor --</output>
             </div>
           </div>
@@ -68,6 +68,13 @@
             </div>
             <button class="ghost" type="button" id="closeEditButton">Close</button>
           </header>
+
+          <section class="app-settings-panel" aria-label="Application settings">
+            <label class="app-title-field">
+              <span>Title</span>
+              <input id="appTitleInput" name="appTitle" autocomplete="off" placeholder="Smart Air">
+            </label>
+          </section>
 
           <form class="manual-add-form" id="manualAddForm">
             <div class="manual-add-grid">

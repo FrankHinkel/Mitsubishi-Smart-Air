@@ -8,6 +8,7 @@ const { execFileSync } = require("node:child_process");
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, "app.sqlite");
+const DEFAULT_APP_TITLE = "Smart Air";
 const PBKDF2_ITERATIONS = 120000;
 const MAX_BUFFER = 8 * 1024 * 1024;
 
@@ -81,6 +82,10 @@ function normalizePort(value) {
 
 function cleanText(value) {
   return String(value || "").trim();
+}
+
+function normalizeAppTitle(value) {
+  return cleanText(value).slice(0, 120) || DEFAULT_APP_TITLE;
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -219,6 +224,12 @@ function initDatabase() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS devices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -256,6 +267,41 @@ function initDatabase() {
 
   ensureDeviceTimerColumns();
   seedDefaultUser();
+}
+
+function getSetting(key) {
+  return queryOne(`
+    SELECT key, value, updated_at AS updatedAt
+    FROM settings
+    WHERE key = ${sqlText(cleanText(key))}
+    LIMIT 1;
+  `);
+}
+
+function setSetting(key, value) {
+  const timestamp = nowIso();
+  runSql(`
+    INSERT INTO settings (key, value, updated_at)
+    VALUES (${sqlText(cleanText(key))}, ${sqlText(String(value || ""))}, ${sqlText(timestamp)})
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at;
+  `);
+}
+
+function getAppSettings() {
+  const titleSetting = getSetting("app_title");
+  return {
+    title: normalizeAppTitle(titleSetting && titleSetting.value),
+  };
+}
+
+function saveAppSettings(input = {}) {
+  const settings = {
+    title: normalizeAppTitle(input.title),
+  };
+  setSetting("app_title", settings.title);
+  return settings;
 }
 
 function seedDefaultUser() {
@@ -559,8 +605,10 @@ module.exports = {
   createSession,
   deleteExpiredSessions,
   deleteSession,
+  getAppSettings,
   getDevice,
   getSession,
+  getSetting,
   getUserById,
   getUserByUsername,
   hashPassword,
@@ -568,7 +616,9 @@ module.exports = {
   listDueSleepTimerDevices,
   listDevices,
   markSleepTimerFailure,
+  saveAppSettings,
   saveDevice,
+  setSetting,
   setDeviceSleepTimer,
   updateDeviceList,
   verifyPassword,
