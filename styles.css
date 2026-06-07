@@ -1,5 +1,8 @@
 :root {
   color-scheme: light;
+  --ui-text-scale: 1;
+  --ui-icon-scale: 1;
+  --ui-control-scale: 1;
   --ink: #17201c;
   --muted: #637169;
   --line: #d7ded8;
@@ -27,6 +30,10 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: calc(16px * var(--ui-text-scale));
+}
+
 body {
   min-height: 100vh;
   margin: 0;
@@ -42,10 +49,10 @@ select {
 }
 
 button {
-  min-height: 42px;
+  min-height: calc(42px * var(--ui-control-scale));
   border: 0;
   border-radius: 8px;
-  padding: 0 14px;
+  padding: 0 calc(14px * var(--ui-control-scale));
   color: var(--ink);
   background: #e8ede8;
   cursor: pointer;
@@ -68,10 +75,10 @@ select:focus-visible {
 input,
 select {
   width: 100%;
-  min-height: 42px;
+  min-height: calc(42px * var(--ui-control-scale));
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 9px 11px;
+  padding: calc(9px * var(--ui-control-scale)) calc(11px * var(--ui-control-scale));
   color: var(--ink);
   background: #fbfcfb;
 }
@@ -161,8 +168,8 @@ label span,
 }
 
 .summary-icon {
-  width: 16px;
-  height: 16px;
+  width: calc(16px * var(--ui-icon-scale));
+  height: calc(16px * var(--ui-icon-scale));
 }
 
 .summary-label {
@@ -178,7 +185,7 @@ label span,
 .top-actions > button,
 .top-actions > .top-zoom-menu > button {
   display: grid;
-  min-width: 42px;
+  min-width: calc(42px * var(--ui-control-scale));
   place-items: center;
   padding: 0;
 }
@@ -196,8 +203,8 @@ label span,
 
 .zoom-menu button {
   display: grid;
-  min-width: 36px;
-  min-height: 36px;
+  min-width: calc(36px * var(--ui-control-scale));
+  min-height: calc(36px * var(--ui-control-scale));
   place-items: center;
   padding: 0;
 }
@@ -381,8 +388,8 @@ label span,
 }
 
 .device-inline-temp-icon {
-  width: 14px;
-  height: 14px;
+  width: calc(14px * var(--ui-icon-scale));
+  height: calc(14px * var(--ui-icon-scale));
   flex: 0 0 auto;
   transform: translateY(1px);
 }
@@ -398,8 +405,8 @@ label span,
 
 .power-button {
   display: grid;
-  width: 32px;
-  min-height: 32px;
+  width: calc(32px * var(--ui-control-scale));
+  min-height: calc(32px * var(--ui-control-scale));
   place-items: center;
   padding: 0;
   color: var(--muted);
@@ -414,8 +421,8 @@ label span,
 }
 
 .power-button-icon {
-  width: 16px;
-  height: 16px;
+  width: calc(16px * var(--ui-icon-scale));
+  height: calc(16px * var(--ui-icon-scale));
 }
 
 .check-row input {
@@ -462,7 +469,7 @@ label span,
 
 .temp-control {
   display: grid;
-  grid-template-columns: 34px minmax(54px, 1fr) 34px;
+  grid-template-columns: calc(34px * var(--ui-control-scale)) minmax(calc(54px * var(--ui-control-scale)), 1fr) calc(34px * var(--ui-control-scale));
   grid-column: 1 / -1;
   align-items: center;
   gap: 4px;
@@ -470,8 +477,8 @@ label span,
 }
 
 .step-button {
-  width: 34px;
-  min-height: 34px;
+  width: calc(34px * var(--ui-control-scale));
+  min-height: calc(34px * var(--ui-control-scale));
   padding: 0;
   color: var(--green-dark);
   background: var(--soft-green);
@@ -482,7 +489,7 @@ label span,
 .temp-control output {
   display: grid;
   min-width: 0;
-  min-height: 34px;
+  min-height: calc(34px * var(--ui-control-scale));
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -524,8 +531,8 @@ label span,
 }
 
 .symbol-visual-icon {
-  width: 17px;
-  height: 17px;
+  width: calc(17px * var(--ui-icon-scale));
+  height: calc(17px * var(--ui-icon-scale));
   flex: 0 0 auto;
 }
 
@@ -537,19 +544,19 @@ label span,
 }
 
 .lucide-icon {
-  width: 18px;
-  height: 18px;
+  width: calc(18px * var(--ui-icon-scale));
+  height: calc(18px * var(--ui-icon-scale));
   flex: 0 0 auto;
 }
 
 .button-icon {
-  width: 18px;
-  height: 18px;
+  width: calc(18px * var(--ui-icon-scale));
+  height: calc(18px * var(--ui-icon-scale));
 }
 
 .trigger-icon {
-  width: 19px;
-  height: 19px;
+  width: calc(19px * var(--ui-icon-scale));
+  height: calc(19px * var(--ui-icon-scale));
 }
 
 .sleep-menu .symbol-trigger {
