@@ -36,6 +36,7 @@ const els = {
   editList: document.querySelector("#editList"),
   editListButton: document.querySelector("#editListButton"),
   editPanel: document.querySelector("#editPanel"),
+  emptyManualButton: document.querySelector("#emptyManualButton"),
   emptyScanButton: document.querySelector("#emptyScanButton"),
   emptyState: document.querySelector("#emptyState"),
   globalMessage: document.querySelector("#globalMessage"),
@@ -46,6 +47,12 @@ const els = {
   loginUsername: document.querySelector("#loginUsername"),
   loginView: document.querySelector("#loginView"),
   logoutButton: document.querySelector("#logoutButton"),
+  manualAddButton: document.querySelector("#manualAddButton"),
+  manualAddForm: document.querySelector("#manualAddForm"),
+  manualIpAddress: document.querySelector("#manualIpAddress"),
+  manualName: document.querySelector("#manualName"),
+  manualPort: document.querySelector("#manualPort"),
+  manualProtocol: document.querySelector("#manualProtocol"),
   outdoorSummary: document.querySelector("#outdoorSummary"),
   refreshAllButton: document.querySelector("#refreshAllButton"),
   rescanEditButton: document.querySelector("#rescanEditButton"),
@@ -367,7 +374,9 @@ function updateButtons(isBusy) {
     els.refreshAllButton,
     els.editListButton,
     els.logoutButton,
+    els.emptyManualButton,
     els.emptyScanButton,
+    els.manualAddButton,
     els.rescanEditButton,
     els.saveListButton,
   ].forEach((button) => {
@@ -665,6 +674,45 @@ async function scanDevices(options = {}) {
   }
 }
 
+function resetManualAddForm() {
+  if (!els.manualAddForm) {
+    return;
+  }
+  els.manualAddForm.reset();
+  els.manualPort.value = "51443";
+  els.manualProtocol.value = "auto";
+}
+
+async function addManualDevice(event) {
+  event.preventDefault();
+  updateButtons(true);
+  setMessage("Adding device...", "info");
+  try {
+    const data = await apiFetch("/api/devices", {
+      method: "POST",
+      body: {
+        name: els.manualName.value.trim(),
+        ipAddress: els.manualIpAddress.value.trim(),
+        port: Number.parseInt(els.manualPort.value, 10) || 51443,
+        protocol: els.manualProtocol.value,
+      },
+    });
+    await loadDevices();
+    if (editOpen) {
+      await openEditList();
+    }
+    if (devices.length) {
+      startStatusPolling();
+    }
+    resetManualAddForm();
+    setMessage(`Added ${data.device && data.device.name ? data.device.name : "device"}.`, "info");
+  } catch (error) {
+    setMessage(friendlyError(error), "error");
+  } finally {
+    updateButtons(false);
+  }
+}
+
 async function refreshDevice(deviceId, options = {}) {
   try {
     const data = await apiFetch(`/api/devices/${deviceId}/status`, {
@@ -928,6 +976,9 @@ async function openEditList() {
   els.editPanel.hidden = false;
   renderEditList();
   renderDevices();
+  if (els.manualIpAddress) {
+    els.manualIpAddress.focus();
+  }
 }
 
 function closeEditList() {
@@ -1027,6 +1078,11 @@ function bindEvents() {
   els.emptyScanButton.addEventListener("click", () => {
     scanDevices({ wideScan: true }).catch((error) => setMessage(friendlyError(error), "error"));
   });
+  if (els.emptyManualButton) {
+    els.emptyManualButton.addEventListener("click", () => {
+      openEditList().catch((error) => setMessage(friendlyError(error), "error"));
+    });
+  }
   els.editListButton.addEventListener("click", () => {
     openEditList().catch((error) => setMessage(friendlyError(error), "error"));
   });
@@ -1037,6 +1093,9 @@ function bindEvents() {
   els.rescanEditButton.addEventListener("click", () => {
     scanDevices({ wideScan: true }).catch((error) => setMessage(friendlyError(error), "error"));
   });
+  if (els.manualAddForm) {
+    els.manualAddForm.addEventListener("submit", addManualDevice);
+  }
 }
 
 bindEvents();

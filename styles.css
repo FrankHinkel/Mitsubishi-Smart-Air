@@ -210,6 +210,11 @@ label span,
   background: var(--panel);
 }
 
+.empty-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .empty-state h2,
 .edit-header h2 {
   margin: 0;
@@ -452,6 +457,37 @@ label span,
   box-shadow: var(--shadow);
 }
 
+.manual-add-form {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfb;
+}
+
+.manual-add-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.manual-add-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.manual-add-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.manual-add-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
 .edit-header {
   display: flex;
   align-items: start;
@@ -564,6 +600,19 @@ label span,
 
   .empty-state {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .empty-actions {
+    grid-template-columns: auto auto;
+  }
+
+  .manual-add-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .manual-add-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
   }
 
   .compact-controls {

@@ -72,6 +72,8 @@ If Docker cannot infer the LAN subnet, set `SCAN_SUBNETS` in `docker-compose.yml
 SCAN_SUBNETS: 192.168.178.0/24
 ```
 
+If discovery still misses a unit, open `Edit list` and add the IP address manually. The server probes the address immediately and stores the device with its detected Aircon ID and protocol data.
+
 ## Configuration
 
 Useful environment variables:

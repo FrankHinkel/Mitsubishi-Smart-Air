@@ -301,6 +301,10 @@ function interfacePriority(name) {
   return 1;
 }
 
+function isIpv4Family(value) {
+  return value === "IPv4" || value === 4 || value === "4";
+}
+
 function parseArpTable(text) {
   return String(text || "")
     .split(/\r?\n/)
@@ -378,7 +382,7 @@ function localSubnetHosts() {
 
     const subnetSet = new Set();
     for (const entry of entries || []) {
-      if (entry.internal || entry.family !== "IPv4" || !validIpAddress(entry.address) || !isPrivateIpv4(entry.address)) {
+      if (entry.internal || !isIpv4Family(entry.family) || !validIpAddress(entry.address) || !isPrivateIpv4(entry.address)) {
         continue;
       }
       for (const host of subnetHosts(`${entry.address}/24`)) {
@@ -864,17 +868,27 @@ async function handleApi(request, response, pathname, url) {
 
   if (request.method === "POST" && pathname === "/api/devices") {
     const payload = await parseJsonBody(request);
+    const desiredName = String(payload.name || payload.deviceId || "").trim();
+    const probe = await loadDeviceInfo({
+      deviceId: desiredName || `WF-RAC ${payload.ipAddress}`,
+      ipAddress: payload.ipAddress,
+      port: payload.port,
+      protocol: payload.protocol,
+      operatorId: payload.operatorId || makeOperatorId(),
+      airconId: payload.airconId,
+    });
     const saved = db.saveDevice({
       config: {
-        deviceId: payload.name || payload.deviceId,
-        ipAddress: payload.ipAddress,
-        port: payload.port,
-        protocol: payload.protocol,
-        operatorId: payload.operatorId || makeOperatorId(),
-        airconId: payload.airconId,
+        ...probe.config,
+        deviceId: desiredName || probe.config.deviceId,
       },
+      info: probe.info,
+      debug: probe.debug,
     });
-    sendJson(response, 201, { device: safeDevice(saved) });
+    sendJson(response, 201, {
+      device: safeDevice(saved),
+      debug: probe.debug,
+    });
     return;
   }
 
