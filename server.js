@@ -42,12 +42,14 @@ const PUBLIC_FILES = new Map([
   ["/styles.css", "styles.css"],
   ["/favicon.ico", null],
   ["/favicon.svg", "favicon.svg"],
+  ["/sun-snow.png", "sun-snow.png"],
 ]);
 const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
   ".svg": "image/svg+xml",
   ".txt": "text/plain; charset=utf-8",
 };
