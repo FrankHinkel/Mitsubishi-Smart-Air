@@ -1,0 +1,13 @@
+{
+  "name": "mitsubishi-smart-air",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Local web control for Mitsubishi WF-RAC air conditioners.",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check database.js && node --check app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

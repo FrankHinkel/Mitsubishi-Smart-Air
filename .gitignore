@@ -1,0 +1,14 @@
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+node_modules/
+.env
+.env.*
+*.log
+*.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Air</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="login-view" id="loginView">
+        <form class="login-panel" id="loginForm">
+          <p class="eyebrow">WF-RAC local</p>
+          <h1>Smart Air</h1>
+
+          <label>
+            <span>Username</span>
+            <input id="loginUsername" name="username" autocomplete="username" value="admin" required>
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input id="loginPassword" name="password" type="password" autocomplete="current-password" value="admin" required>
+          </label>
+
+          <button class="primary" type="submit" id="loginButton">Sign in</button>
+          <p class="message error" id="loginError" hidden></p>
+        </form>
+      </section>
+
+      <section class="app-view" id="appView" hidden>
+        <header class="topbar">
+          <div class="brand">
+            <p class="eyebrow">Mitsubishi local control</p>
+            <div class="brand-line">
+              <h1>Smart Air</h1>
+              <output id="outdoorSummary">Outdoor --</output>
+            </div>
+          </div>
+
+          <nav class="top-actions" aria-label="Application actions">
+            <button class="secondary" type="button" id="refreshAllButton">Refresh</button>
+            <button class="secondary" type="button" id="editListButton">Edit list</button>
+            <button class="ghost" type="button" id="logoutButton">Logout</button>
+          </nav>
+        </header>
+
+        <p class="message" id="globalMessage" hidden></p>
+
+        <section class="empty-state" id="emptyState" hidden>
+          <div>
+            <p class="eyebrow">Devices</p>
+            <h2>No air conditioners found</h2>
+          </div>
+          <button class="primary" type="button" id="emptyScanButton">Scan network</button>
+        </section>
+
+        <section class="device-list" id="deviceList" aria-label="Managed air conditioners"></section>
+
+        <section class="edit-panel" id="editPanel" hidden>
+          <header class="edit-header">
+            <div>
+              <p class="eyebrow">List</p>
+              <h2>Edit devices</h2>
+            </div>
+            <button class="ghost" type="button" id="closeEditButton">Close</button>
+          </header>
+
+          <div class="edit-list" id="editList"></div>
+
+          <div class="edit-actions">
+            <button class="secondary" type="button" id="rescanEditButton">Scan</button>
+            <button class="primary" type="button" id="saveListButton">Save list</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
