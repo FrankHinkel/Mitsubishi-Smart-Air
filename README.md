@@ -106,22 +106,15 @@ Sleep timers are stored in SQLite. When a timer expires, the server sends an off
 
 ## Current features
 
-- Docker Compose installation for Raspberry Pi style hosts
-- Local login with HttpOnly cookie sessions
-- Mobile-friendly English UI
-- Compact device list as the main screen
-- Immediate power, mode, temperature, and fan controls
-- Persistent sleep timer with countdown and retry-on-failure shutdown
-- Inline error messages instead of success popups
-- SQLite device database
-- Automatic scan when no devices are configured
-- Edit list view for names, ordering, and hidden devices
+- Temporary Boost mode for Cool and Heat with automatic restore after the selected countdown
 
 ## WF-RAC notes
 
 Known local devices from the prototype:
 
 ```text
+
+Boost mode is implemented on top of the same write path. The server temporarily applies maximum airflow plus the extreme target temperature for the current mode and restores the previous status after the selected timer expires.
 192.168.178.84   a0:43:b0:5a:df:c7   a043b05adfc7   1st floor hallway
 192.168.178.100  a0:43:b0:5a:e3:4d   a043b05ae34d   2nd floor bedroom
 192.168.178.122  a0:43:b0:5a:e0:78   a043b05ae078

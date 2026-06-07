@@ -54,6 +54,7 @@ db.initDatabase();
 db.deleteExpiredSessions();
 setInterval(() => db.deleteExpiredSessions(), 60 * 60 * 1000).unref();
 let statusPollRunning = false;
+let boostTimerRunning = false;
 let sleepTimerRunning = false;
 
 function parseCsv(value) {
@@ -271,6 +272,39 @@ function assertWriteAccepted(result) {
   }
 
   throw new Error(`The device rejected the command with result ${resultCode}.`);
+}
+
+function normalizedStatus(status) {
+  return {
+    ...defaultStatus(),
+    ...(status || {}),
+  };
+}
+
+function validBoostMinutes(value) {
+  const minutes = Number.parseInt(value, 10);
+  return [5, 10, 15, 30].includes(minutes) ? minutes : 0;
+}
+
+function buildBoostStatus(status) {
+  const current = normalizedStatus(status);
+  if (Number(current.operationMode) === 1) {
+    return {
+      ...current,
+      airFlow: 4,
+      operation: true,
+      presetTemp: 18,
+    };
+  }
+  if (Number(current.operationMode) === 2) {
+    return {
+      ...current,
+      airFlow: 4,
+      operation: true,
+      presetTemp: 30,
+    };
+  }
+  throw new Error("Boost is only available in Cool or Heat mode.");
 }
 
 function validIpAddress(ipAddress) {
@@ -732,8 +766,11 @@ async function handleDeviceApply(deviceId, request, response) {
   const { saved, debug } = await applyDeviceStatus(device, nextStatus, {
     forceOff: Boolean(payload.forceOff),
   });
+  const finalDevice = device.boostTimer && payload.cancelBoost !== false
+    ? db.setDeviceBoostTimer(saved.id, null)
+    : saved;
   sendJson(response, 200, {
-    device: safeDevice(saved),
+    device: safeDevice(finalDevice),
     debug,
   });
 }
@@ -770,6 +807,41 @@ async function handleDeviceSleep(deviceId, request, response) {
   });
 }
 
+async function handleDeviceBoost(deviceId, request, response) {
+  const device = db.getDevice(deviceId);
+  if (!device) {
+    sendJson(response, 404, { error: "Device not found." });
+    return;
+  }
+
+  const payload = await parseJsonBody(request);
+  if (payload.minutes === null || payload.minutes === undefined || payload.minutes === "" || payload.minutes === 0) {
+    sendJson(response, 200, {
+      device: safeDevice(db.setDeviceBoostTimer(device.id, null)),
+    });
+    return;
+  }
+
+  const minutes = validBoostMinutes(payload.minutes);
+  if (!minutes) {
+    sendJson(response, 400, { error: "Invalid boost timer." });
+    return;
+  }
+
+  const currentStatus = normalizedStatus(device.status);
+  const restoreStatus = device.boostTimer && device.boostTimer.restoreStatus
+    ? normalizedStatus(device.boostTimer.restoreStatus)
+    : currentStatus;
+  const boostStatus = buildBoostStatus(currentStatus);
+  const { saved, debug } = await applyDeviceStatus(device, boostStatus);
+  const until = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+  const boosted = db.setDeviceBoostTimer(saved.id, until, restoreStatus);
+  sendJson(response, 200, {
+    device: safeDevice(boosted),
+    debug,
+  });
+}
+
 async function runDueSleepTimers() {
   if (sleepTimerRunning) {
     return;
@@ -786,7 +858,10 @@ async function runDueSleepTimers() {
           operation: false,
         };
         const result = await applyDeviceStatus(device, nextStatus, { forceOff: true });
-        db.setDeviceSleepTimer(result.saved.id, null);
+        let updated = db.setDeviceSleepTimer(result.saved.id, null);
+        if (device.boostTimer) {
+          updated = db.setDeviceBoostTimer(updated.id, null);
+        }
       } catch (error) {
         const nextRetryCount = (device.sleepTimer ? device.sleepTimer.retryCount : 0) + 1;
         const message = error && error.message ? error.message : String(error);
@@ -798,6 +873,39 @@ async function runDueSleepTimers() {
     }
   } finally {
     sleepTimerRunning = false;
+  }
+}
+
+async function runDueBoostTimers() {
+  if (boostTimerRunning) {
+    return;
+  }
+
+  boostTimerRunning = true;
+  try {
+    const dueDevices = db.listDueBoostTimerDevices();
+    for (const device of dueDevices) {
+      try {
+        const restoreStatus = device.boostTimer && device.boostTimer.restoreStatus
+          ? normalizedStatus(device.boostTimer.restoreStatus)
+          : null;
+        if (!restoreStatus) {
+          db.setDeviceBoostTimer(device.id, null);
+          continue;
+        }
+        const result = await applyDeviceStatus(device, restoreStatus);
+        db.setDeviceBoostTimer(result.saved.id, null);
+      } catch (error) {
+        const nextRetryCount = (device.boostTimer ? device.boostTimer.retryCount : 0) + 1;
+        const message = error && error.message ? error.message : String(error);
+        const nextAttemptAt = nextRetryCount <= SLEEP_TIMER_MAX_RETRIES
+          ? new Date(Date.now() + SLEEP_TIMER_RETRY_DELAY_MS).toISOString()
+          : null;
+        db.markBoostTimerFailure(device.id, nextRetryCount, nextAttemptAt, message);
+      }
+    }
+  } finally {
+    boostTimerRunning = false;
   }
 }
 
@@ -938,7 +1046,7 @@ async function handleApi(request, response, pathname, url) {
     return;
   }
 
-  const deviceAction = pathname.match(/^\/api\/devices\/(\d+)\/(status|apply|register|sleep)$/);
+  const deviceAction = pathname.match(/^\/api\/devices\/(\d+)\/(status|apply|boost|register|sleep)$/);
   if (deviceAction) {
     const deviceId = Number.parseInt(deviceAction[1], 10);
     const action = deviceAction[2];
@@ -952,6 +1060,10 @@ async function handleApi(request, response, pathname, url) {
     }
     if (action === "apply") {
       await handleDeviceApply(deviceId, request, response);
+      return;
+    }
+    if (action === "boost") {
+      await handleDeviceBoost(deviceId, request, response);
       return;
     }
     if (action === "sleep") {
@@ -1002,7 +1114,9 @@ server.listen(PORT, HOST, () => {
   if (SLEEP_TIMER_CHECK_INTERVAL_MS > 0) {
     setInterval(() => {
       runDueSleepTimers().catch(() => {});
+      runDueBoostTimers().catch(() => {});
     }, SLEEP_TIMER_CHECK_INTERVAL_MS).unref();
     runDueSleepTimers().catch(() => {});
+    runDueBoostTimers().catch(() => {});
   }
 });

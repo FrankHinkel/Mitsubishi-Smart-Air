@@ -129,6 +129,11 @@ function selectDeviceColumns() {
     hidden,
     status_json AS statusJson,
     raw_info_json AS rawInfoJson,
+    boost_until AS boostUntil,
+    boost_next_attempt_at AS boostNextAttemptAt,
+    boost_retry_count AS boostRetryCount,
+    boost_last_error AS boostLastError,
+    boost_restore_status_json AS boostRestoreStatusJson,
     sleep_until AS sleepUntil,
     sleep_next_attempt_at AS sleepNextAttemptAt,
     sleep_retry_count AS sleepRetryCount,
@@ -170,6 +175,15 @@ function rowToDevice(row) {
     hidden: Boolean(row.hidden),
     status: parseJsonField(row.statusJson),
     rawInfo: parseJsonField(row.rawInfoJson),
+    boostTimer: row.boostUntil
+      ? {
+        until: row.boostUntil,
+        nextAttemptAt: row.boostNextAttemptAt || row.boostUntil,
+        retryCount: Number(row.boostRetryCount) || 0,
+        lastError: row.boostLastError || "",
+        restoreStatus: parseJsonField(row.boostRestoreStatusJson),
+      }
+      : null,
     sleepTimer: row.sleepUntil
       ? {
         until: row.sleepUntil,
@@ -197,6 +211,11 @@ function ensureColumn(tableName, columnName, definition) {
 }
 
 function ensureDeviceTimerColumns() {
+  ensureColumn("devices", "boost_until", "TEXT");
+  ensureColumn("devices", "boost_next_attempt_at", "TEXT");
+  ensureColumn("devices", "boost_retry_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("devices", "boost_last_error", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("devices", "boost_restore_status_json", "TEXT");
   ensureColumn("devices", "sleep_until", "TEXT");
   ensureColumn("devices", "sleep_next_attempt_at", "TEXT");
   ensureColumn("devices", "sleep_retry_count", "INTEGER NOT NULL DEFAULT 0");
@@ -244,6 +263,11 @@ function initDatabase() {
       hidden INTEGER NOT NULL DEFAULT 0,
       status_json TEXT,
       raw_info_json TEXT,
+      boost_until TEXT,
+      boost_next_attempt_at TEXT,
+      boost_retry_count INTEGER NOT NULL DEFAULT 0,
+      boost_last_error TEXT NOT NULL DEFAULT '',
+      boost_restore_status_json TEXT,
       sleep_until TEXT,
       sleep_next_attempt_at TEXT,
       sleep_retry_count INTEGER NOT NULL DEFAULT 0,
@@ -575,6 +599,61 @@ function setDeviceSleepTimer(id, untilIso) {
   return getDevice(deviceId);
 }
 
+function setDeviceBoostTimer(id, untilIso, restoreStatus) {
+  const deviceId = Number.parseInt(id, 10) || 0;
+  const timestamp = nowIso();
+  if (!untilIso) {
+    runSql(`
+      UPDATE devices SET
+        boost_until = NULL,
+        boost_next_attempt_at = NULL,
+        boost_retry_count = 0,
+        boost_last_error = '',
+        boost_restore_status_json = NULL,
+        updated_at = ${sqlText(timestamp)}
+      WHERE id = ${deviceId};
+    `);
+    return getDevice(deviceId);
+  }
+
+  runSql(`
+    UPDATE devices SET
+      boost_until = ${sqlText(untilIso)},
+      boost_next_attempt_at = ${sqlText(untilIso)},
+      boost_retry_count = 0,
+      boost_last_error = '',
+      boost_restore_status_json = ${sqlValue(restoreStatus ? JSON.stringify(restoreStatus) : null)},
+      updated_at = ${sqlText(timestamp)}
+    WHERE id = ${deviceId};
+  `);
+  return getDevice(deviceId);
+}
+
+function listDueBoostTimerDevices(referenceIso = nowIso()) {
+  return queryRows(`
+    SELECT ${selectDeviceColumns()}
+    FROM devices
+    WHERE boost_until IS NOT NULL
+      AND boost_next_attempt_at IS NOT NULL
+      AND boost_next_attempt_at <= ${sqlText(referenceIso)}
+    ORDER BY boost_next_attempt_at ASC, id ASC;
+  `).map(rowToDevice);
+}
+
+function markBoostTimerFailure(id, retryCount, nextAttemptAt, errorMessage) {
+  const deviceId = Number.parseInt(id, 10) || 0;
+  const timestamp = nowIso();
+  runSql(`
+    UPDATE devices SET
+      boost_retry_count = ${Number.parseInt(retryCount, 10) || 0},
+      boost_next_attempt_at = ${sqlValue(nextAttemptAt || null)},
+      boost_last_error = ${sqlText(cleanText(errorMessage).slice(0, 400))},
+      updated_at = ${sqlText(timestamp)}
+    WHERE id = ${deviceId};
+  `);
+  return getDevice(deviceId);
+}
+
 function listDueSleepTimerDevices(referenceIso = nowIso()) {
   return queryRows(`
     SELECT ${selectDeviceColumns()}
@@ -602,6 +681,7 @@ function markSleepTimerFailure(id, retryCount, nextAttemptAt, errorMessage) {
 
 module.exports = {
   DB_PATH,
+  listDueBoostTimerDevices,
   createSession,
   deleteExpiredSessions,
   deleteSession,
@@ -613,12 +693,14 @@ module.exports = {
   getUserByUsername,
   hashPassword,
   initDatabase,
+  markBoostTimerFailure,
   listDueSleepTimerDevices,
   listDevices,
   markSleepTimerFailure,
   saveAppSettings,
   saveDevice,
   setSetting,
+  setDeviceBoostTimer,
   setDeviceSleepTimer,
   updateDeviceList,
   verifyPassword,

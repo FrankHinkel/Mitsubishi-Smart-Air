@@ -8,11 +8,11 @@ const MODE_OPTIONS = [
   { value: 4, label: "Dry", icon: "droplets" },
 ];
 const FAN_OPTIONS = [
-  { value: 0, label: "Auto", symbol: "A" },
-  { value: 1, label: "Quiet", symbol: "Q" },
-  { value: 2, label: "Low", symbol: "I" },
-  { value: 3, label: "High", symbol: "III" },
-  { value: 4, label: "Powerful", symbol: "IV" },
+  { value: 0, label: "Auto", icon: "fan", badge: "A" },
+  { value: 1, label: "Quiet", icon: "fan", badge: "1" },
+  { value: 2, label: "Low", icon: "fan", badge: "2" },
+  { value: 3, label: "High", icon: "fan", badge: "3" },
+  { value: 4, label: "Powerful", icon: "fan", badge: "4" },
 ];
 const SLEEP_OPTIONS = [
   { hours: null, label: "--" },
@@ -22,6 +22,12 @@ const SLEEP_OPTIONS = [
   { hours: 4, label: "4h" },
   { hours: 8, label: "8h" },
   { hours: 12, label: "12h" },
+];
+const BOOST_OPTIONS = [
+  { minutes: 5, label: "5" },
+  { minutes: 10, label: "10" },
+  { minutes: 15, label: "15" },
+  { minutes: 30, label: "30" },
 ];
 const TEMP_MIN = 18;
 const TEMP_MAX = 30;
@@ -48,6 +54,20 @@ const LUCIDE_ICON_NODES = {
   ],
   thermometer: [
     ["path", { d: "M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" }],
+  ],
+  "biceps-flexed": [
+    ["path", { d: "M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 10 2a3 3 0 0 1 3 3 2 2 0 0 1-2 2c-1.105 0-1.64-.444-2-1" }],
+    ["path", { d: "M15 14a5 5 0 0 0-7.584 2" }],
+    ["path", { d: "M9.964 6.825C8.019 7.977 9.5 13 8 15" }],
+  ],
+  house: [
+    ["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }],
+    ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }],
+  ],
+  "bed-single": [
+    ["path", { d: "M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8" }],
+    ["path", { d: "M5 10V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4" }],
+    ["path", { d: "M3 18h18" }],
   ],
   "sun-snow": [
     ["path", { d: "M10 21v-1" }],
@@ -450,7 +470,59 @@ function sleepCountdownText(device) {
 }
 
 function sleepSummaryText(device) {
-  return `Sleep ${sleepCountdownText(device)}`;
+  return sleepCountdownText(device);
+}
+
+function boostModeAvailable(status) {
+  return Number(status.operationMode) === 1 || Number(status.operationMode) === 2;
+}
+
+function buildBoostStatus(status) {
+  if (Number(status.operationMode) === 1) {
+    return {
+      ...status,
+      airFlow: 4,
+      operation: true,
+      presetTemp: TEMP_MIN,
+    };
+  }
+  if (Number(status.operationMode) === 2) {
+    return {
+      ...status,
+      airFlow: 4,
+      operation: true,
+      presetTemp: TEMP_MAX,
+    };
+  }
+  return status;
+}
+
+function boostCountdownText(device) {
+  const timer = device && device.boostTimer;
+  if (!timer || !timer.until) {
+    return "--";
+  }
+
+  if (timer.lastError && !timer.nextAttemptAt) {
+    return "Failed";
+  }
+
+  const now = Date.now();
+  const untilTime = Date.parse(timer.until);
+  if (Number.isFinite(untilTime) && untilTime > now) {
+    return formatCountdown(untilTime - now);
+  }
+
+  const nextAttemptTime = Date.parse(timer.nextAttemptAt || "");
+  if (Number.isFinite(nextAttemptTime) && nextAttemptTime > now) {
+    return `Retry ${formatCountdown(nextAttemptTime - now)}`;
+  }
+
+  return "Due";
+}
+
+function boostSummaryText(device) {
+  return boostCountdownText(device);
 }
 
 function formatLastSeen(device) {
@@ -474,9 +546,13 @@ function renderOutdoorSummary() {
     return;
   }
   const deviceWithOutdoor = devices.find((device) => Number.isFinite(statusOf(device).outdoorTemp));
-  els.outdoorSummary.textContent = deviceWithOutdoor
-    ? `Outdoor ${formatTemp(statusOf(deviceWithOutdoor).outdoorTemp)}`
-    : "Outdoor --";
+  const text = deviceWithOutdoor
+    ? formatTemp(statusOf(deviceWithOutdoor).outdoorTemp)
+    : "--";
+  els.outdoorSummary.replaceChildren(
+    createLucideIcon("house", "summary-icon"),
+    createElement("span", { className: "summary-label", text })
+  );
 }
 
 function scrollSnapshot(element = null) {
@@ -572,14 +648,28 @@ function closeOpenMenus(except = null) {
   });
 }
 
+function renderOptionVisual(option, extraClassName = "") {
+  const visual = createElement("span", { className: ["symbol-visual", extraClassName].filter(Boolean).join(" ") });
+  if (option.icon) {
+    visual.append(createLucideIcon(option.icon, "symbol-visual-icon"));
+  }
+  if (option.badge || option.symbol) {
+    visual.append(createElement("span", {
+      className: "symbol-visual-badge",
+      text: option.badge || option.symbol,
+    }));
+  }
+  return visual;
+}
+
 function renderSymbolMenu(label, value, options, onSelect) {
   const selected = findOption(options, value);
   const wrapper = createElement("div", { className: "symbol-menu" });
-  const trigger = createElement("button", { className: `symbol-trigger${selected.icon ? " has-icon" : ""}` });
+  const trigger = createElement("button", { className: `symbol-trigger${selected.icon || selected.badge || selected.symbol ? " has-icon" : ""}` });
   trigger.type = "button";
   trigger.setAttribute("aria-label", `${label}: ${selected.label}`);
-  if (selected.icon) {
-    trigger.append(createLucideIcon(selected.icon, "trigger-icon"));
+  if (selected.icon || selected.badge || selected.symbol) {
+    trigger.append(renderOptionVisual(selected, "trigger-visual"));
   } else {
     trigger.textContent = selected.symbol;
   }
@@ -594,10 +684,10 @@ function renderSymbolMenu(label, value, options, onSelect) {
   for (const option of options) {
     const button = createElement("button", { className: Number(option.value) === Number(value) ? "selected" : "" });
     button.type = "button";
-    if (option.icon) {
+    if (option.icon || option.badge || option.symbol) {
       const content = createElement("span", { className: "menu-option-content" });
       content.append(
-        createLucideIcon(option.icon, "menu-option-icon"),
+        renderOptionVisual(option, "menu-option-visual"),
         createElement("span", { className: "menu-option-label", text: option.label })
       );
       button.append(content);
@@ -617,10 +707,17 @@ function renderSymbolMenu(label, value, options, onSelect) {
 
 function renderSleepMenu(device) {
   const wrapper = createElement("div", { className: "symbol-menu sleep-menu" });
-  const trigger = createElement("button", { className: "symbol-trigger", text: sleepSummaryText(device) });
+  const trigger = createElement("button", { className: "symbol-trigger has-icon sleep-trigger" });
   trigger.type = "button";
-  trigger.dataset.sleepCountdown = String(device.id);
-  trigger.setAttribute("aria-label", `Sleep timer for ${device.name}`);
+  trigger.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
+  trigger.append(
+    createLucideIcon("bed-single", "trigger-icon"),
+    createElement("span", {
+      className: "sleep-trigger-label",
+      text: sleepSummaryText(device),
+    })
+  );
+  trigger.querySelector(".sleep-trigger-label").dataset.sleepCountdown = String(device.id);
   preventPointerFocusScroll(trigger);
   const menu = createElement("div", { className: "popup-menu timer-options", hidden: true });
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
@@ -636,6 +733,43 @@ function renderSleepMenu(device) {
     button.addEventListener("click", guardedControlClick(button, () => {
       menu.hidden = true;
       setSleepTimer(device.id, option.hours).catch(() => {});
+    }));
+    menu.append(button);
+  }
+  wrapper.append(trigger, menu);
+  return wrapper;
+}
+
+function renderBoostMenu(device) {
+  const status = statusOf(device);
+  const wrapper = createElement("div", { className: "symbol-menu boost-menu" });
+  const trigger = createElement("button", { className: "symbol-trigger has-icon boost-trigger" });
+  trigger.type = "button";
+  trigger.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
+  trigger.disabled = !boostModeAvailable(status);
+  trigger.append(
+    createLucideIcon("biceps-flexed", "trigger-icon"),
+    createElement("span", {
+      className: "boost-trigger-label",
+      text: boostSummaryText(device),
+    })
+  );
+  trigger.querySelector(".boost-trigger-label").dataset.boostCountdown = String(device.id);
+  preventPointerFocusScroll(trigger);
+  const menu = createElement("div", { className: "popup-menu timer-options", hidden: true });
+  trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
+    const shouldOpen = menu.hidden;
+    closeOpenMenus(menu);
+    menu.hidden = !shouldOpen;
+    restoreScroll(scroll);
+  }));
+  for (const option of BOOST_OPTIONS) {
+    const button = createElement("button", { text: option.label });
+    button.type = "button";
+    preventPointerFocusScroll(button);
+    button.addEventListener("click", guardedControlClick(button, () => {
+      menu.hidden = true;
+      setBoostTimer(device.id, option.minutes).catch(() => {});
     }));
     menu.append(button);
   }
@@ -717,6 +851,7 @@ function renderDeviceCard(device) {
     renderSymbolMenu("Fan", status.airFlow, FAN_OPTIONS, (value) => {
       queueDevicePatch(device.id, { airFlow: value });
     }),
+    renderBoostMenu(device),
     renderSleepMenu(device)
   );
 
@@ -727,6 +862,9 @@ function renderDeviceCard(device) {
   }
   if (device.sleepTimer && device.sleepTimer.lastError && !device.sleepTimer.nextAttemptAt) {
     card.append(createElement("p", { className: "device-error", text: `Sleep timer failed: ${device.sleepTimer.lastError}` }));
+  }
+  if (device.boostTimer && device.boostTimer.lastError && !device.boostTimer.nextAttemptAt) {
+    card.append(createElement("p", { className: "device-error", text: `Boost failed: ${device.boostTimer.lastError}` }));
   }
   return card;
 }
@@ -998,6 +1136,7 @@ function queueDevicePatch(deviceId, statusPatch, options = {}) {
 
   const optimistic = {
     ...current,
+    boostTimer: current.boostTimer ? null : current.boostTimer,
     status: {
       ...statusOf(current),
       ...statusPatch,
@@ -1125,12 +1264,72 @@ async function setSleepTimer(deviceId, hours) {
   }
 }
 
+async function setBoostTimer(deviceId, minutes) {
+  const current = devices.find((device) => device.id === deviceId);
+  if (!current) {
+    return;
+  }
+
+  const status = statusOf(current);
+  const boostedStatus = buildBoostStatus(status);
+  const optimistic = {
+    ...current,
+    boostTimer: minutes
+      ? {
+        until: new Date(Date.now() + minutes * 60 * 1000).toISOString(),
+        nextAttemptAt: null,
+        retryCount: 0,
+        lastError: "",
+      }
+      : null,
+    status: minutes ? boostedStatus : status,
+  };
+  replaceDevice(optimistic);
+  renderDevices();
+
+  try {
+    const data = await apiFetch(`/api/devices/${deviceId}/boost`, {
+      method: "POST",
+      body: {
+        minutes,
+      },
+    });
+    if (data.device) {
+      replaceDevice(data.device);
+    }
+    deviceErrors.delete(deviceId);
+    setMessage("");
+  } catch (error) {
+    replaceDevice(current);
+    const message = friendlyError(error);
+    deviceErrors.set(deviceId, message);
+    setMessage(message, "error");
+  } finally {
+    renderDevices();
+  }
+}
+
 function updateCountdownDisplays() {
   document.querySelectorAll("[data-sleep-countdown]").forEach((element) => {
     const deviceId = Number.parseInt(element.dataset.sleepCountdown, 10);
     const device = devices.find((item) => item.id === deviceId);
     if (device) {
       element.textContent = sleepSummaryText(device);
+      const trigger = element.closest("button");
+      if (trigger) {
+        trigger.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
+      }
+    }
+  });
+  document.querySelectorAll("[data-boost-countdown]").forEach((element) => {
+    const deviceId = Number.parseInt(element.dataset.boostCountdown, 10);
+    const device = devices.find((item) => item.id === deviceId);
+    if (device) {
+      element.textContent = boostSummaryText(device);
+      const trigger = element.closest("button");
+      if (trigger) {
+        trigger.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
+      }
     }
   });
 }

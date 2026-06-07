@@ -148,6 +148,9 @@ label span,
 }
 
 .brand-line output {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: 0 0 auto;
   border-radius: 8px;
   padding: 5px 8px;
@@ -155,6 +158,15 @@ label span,
   background: var(--soft-green);
   font-size: 0.82rem;
   font-weight: 850;
+}
+
+.summary-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.summary-label {
+  line-height: 1;
 }
 
 .top-actions {
@@ -410,48 +422,53 @@ label span,
 
 .compact-controls {
   display: grid;
-  grid-template-columns: minmax(134px, 1fr) 44px 44px minmax(84px, 0.72fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: center;
   gap: 6px;
 }
 
 .temp-control {
   display: grid;
-  grid-template-columns: 36px minmax(62px, 1fr) 36px;
+  grid-template-columns: 34px minmax(54px, 1fr) 34px;
+  grid-column: 1 / -1;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .step-button {
-  width: 36px;
-  min-height: 36px;
+  width: 34px;
+  min-height: 34px;
   padding: 0;
   color: var(--green-dark);
   background: var(--soft-green);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: 900;
 }
 
 .temp-control output {
   display: grid;
-  min-height: 36px;
+  min-width: 0;
+  min-height: 34px;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfb;
-  font-size: 1.02rem;
+  font-size: 0.96rem;
   font-weight: 850;
 }
 
 .symbol-menu {
   position: relative;
+  min-width: 0;
 }
 
 .symbol-trigger {
-  display: grid;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 36px;
-  place-items: center;
   border-radius: 8px;
   padding: 0 8px;
   color: var(--blue);
@@ -464,6 +481,26 @@ label span,
 
 .symbol-trigger.has-icon {
   padding: 0 6px;
+}
+
+.symbol-visual {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.symbol-visual-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.symbol-visual-badge {
+  min-width: 10px;
+  font-size: 0.8rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .lucide-icon {
@@ -487,6 +524,29 @@ label span,
   background: var(--soft-green);
   font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.boost-menu .symbol-trigger {
+  color: #8a5b00;
+  background: rgba(168, 111, 0, 0.18);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.sleep-trigger {
+  gap: 6px;
+}
+
+.sleep-trigger-label {
+  line-height: 1;
+}
+
+.boost-trigger {
+  gap: 6px;
+}
+
+.boost-trigger-label {
+  line-height: 1;
 }
 
 .popup-menu {
@@ -516,11 +576,6 @@ label span,
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.menu-option-icon {
-  width: 17px;
-  height: 17px;
 }
 
 .menu-option-label {
@@ -728,10 +783,6 @@ label span,
     align-items: center;
   }
 
-  .compact-controls {
-    grid-template-columns: minmax(150px, 0.8fr) 46px 46px minmax(96px, 0.44fr);
-  }
-
   .edit-row {
     grid-template-columns: auto minmax(0, 1fr) 110px;
     align-items: center;
@@ -739,5 +790,25 @@ label span,
 
   .check-row {
     grid-column: auto;
+  }
+}
+
+@media (min-width: 860px) {
+  .compact-controls {
+    grid-template-columns: minmax(0, 1fr) 46px 46px 46px auto;
+  }
+
+  .temp-control {
+    grid-column: auto;
+  }
+
+  .sleep-menu {
+    justify-self: end;
+  }
+
+  .sleep-menu .symbol-trigger {
+    width: auto;
+    min-width: 88px;
+    padding: 0 12px;
   }
 }
