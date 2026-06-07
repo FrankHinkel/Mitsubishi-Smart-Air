@@ -1,6 +1,5 @@
 :root {
   color-scheme: light;
-  --page-scale: 1;
   --ink: #17201c;
   --muted: #637169;
   --line: #d7ded8;
@@ -34,15 +33,6 @@ body {
   color: var(--ink);
   background: var(--surface);
   overflow-anchor: none;
-  zoom: var(--page-scale);
-}
-
-@supports not (zoom: 1) {
-  body {
-    transform: scale(var(--page-scale));
-    transform-origin: top center;
-    width: calc(100% / var(--page-scale));
-  }
 }
 
 button,

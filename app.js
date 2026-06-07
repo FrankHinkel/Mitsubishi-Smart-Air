@@ -39,6 +39,7 @@ const UI_SCALE_KEY = "smart-air-ui-scale";
 const UI_SCALE_MIN = 0.5;
 const UI_SCALE_MAX = 2;
 const UI_SCALE_STEP = 0.1;
+const DEFAULT_VIEWPORT_CONTENT = "width=device-width, initial-scale=1";
 
 const LUCIDE_ICON_NODES = {
   "refresh-cw": [
@@ -167,6 +168,7 @@ const els = {
   refreshAllButton: document.querySelector("#refreshAllButton"),
   rescanEditButton: document.querySelector("#rescanEditButton"),
   saveListButton: document.querySelector("#saveListButton"),
+  viewportMeta: document.querySelector('meta[name="viewport"]'),
   zoomInButton: document.querySelector("#zoomInButton"),
   zoomMenu: document.querySelector("#zoomMenu"),
   zoomMenuButton: document.querySelector("#zoomMenuButton"),
@@ -282,9 +284,29 @@ function updateZoomControls() {
   }
 }
 
+function readViewportBaseWidth() {
+  const shortSide = Math.min(window.screen.width || window.innerWidth || 0, window.screen.height || window.innerHeight || 0);
+  const longSide = Math.max(window.screen.width || window.innerWidth || 0, window.screen.height || window.innerHeight || 0);
+  const landscape = window.matchMedia("(orientation: landscape)").matches;
+  const baseWidth = landscape ? longSide : shortSide;
+  return Math.max(320, Math.round(baseWidth || window.innerWidth || 320));
+}
+
+function applyViewportScale() {
+  if (!els.viewportMeta) {
+    return;
+  }
+  if (uiScale === 1) {
+    els.viewportMeta.setAttribute("content", DEFAULT_VIEWPORT_CONTENT);
+    return;
+  }
+  const scaledWidth = Math.max(200, Math.round(readViewportBaseWidth() / uiScale));
+  els.viewportMeta.setAttribute("content", `width=${scaledWidth}, initial-scale=1`);
+}
+
 function applyUiScale(nextScale, options = {}) {
   uiScale = normalizeUiScale(nextScale);
-  document.documentElement.style.setProperty("--page-scale", String(uiScale));
+  applyViewportScale();
   updateZoomControls();
   if (options.persist !== false) {
     try {
@@ -331,6 +353,10 @@ window.addEventListener("scroll", () => {
       y: window.scrollY,
     };
   }, 180);
+}, { passive: true });
+
+window.addEventListener("resize", () => {
+  applyViewportScale();
 }, { passive: true });
 
 document.addEventListener("click", (event) => {
