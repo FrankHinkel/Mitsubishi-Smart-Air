@@ -606,6 +606,15 @@ function boostSummaryText(device) {
   return boostCountdownText(device);
 }
 
+function boostRestoreStatus(device) {
+  return device && device.boostTimer && device.boostTimer.restoreStatus
+    ? {
+      ...statusOf(device),
+      ...device.boostTimer.restoreStatus,
+    }
+    : statusOf(device);
+}
+
 function formatLastSeen(device) {
   if (!device || !device.lastSeenAt) {
     return "Not refreshed yet";
@@ -823,6 +832,7 @@ function renderSleepMenu(device) {
 
 function renderBoostMenu(device) {
   const status = statusOf(device);
+  const boostActive = Boolean(device.boostTimer && device.boostTimer.until);
   const wrapper = createElement("div", { className: "symbol-menu boost-menu" });
   const trigger = createElement("button", { className: "symbol-trigger has-icon boost-trigger" });
   trigger.type = "button";
@@ -839,6 +849,12 @@ function renderBoostMenu(device) {
   preventPointerFocusScroll(trigger);
   const menu = createElement("div", { className: "popup-menu timer-options", hidden: true });
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
+    if (boostActive) {
+      menu.hidden = true;
+      setBoostTimer(device.id, 0).catch(() => {});
+      restoreScroll(scroll);
+      return;
+    }
     const shouldOpen = menu.hidden;
     closeOpenMenus(menu);
     menu.hidden = !shouldOpen;
@@ -891,7 +907,14 @@ function renderDeviceCard(device) {
   powerButton.append(createLucideIcon("power", "power-button-icon"));
   preventPointerFocusScroll(powerButton);
   powerButton.addEventListener("click", guardedControlClick(powerButton, () => {
-    queueDevicePatch(device.id, { operation: !status.operation });
+    const nextOperation = !status.operation;
+    const nextPatch = !nextOperation && device.boostTimer && device.boostTimer.restoreStatus
+      ? {
+        ...device.boostTimer.restoreStatus,
+        operation: false,
+      }
+      : { operation: nextOperation };
+    queueDevicePatch(device.id, nextPatch, { forceOff: !nextOperation });
   }));
 
   headerActions.append(renderBoostMenu(device), powerButton);
@@ -1352,6 +1375,7 @@ async function setBoostTimer(deviceId, minutes) {
 
   const status = statusOf(current);
   const boostedStatus = buildBoostStatus(status);
+  const restoredStatus = boostRestoreStatus(current);
   const optimistic = {
     ...current,
     boostTimer: minutes
@@ -1362,7 +1386,7 @@ async function setBoostTimer(deviceId, minutes) {
         lastError: "",
       }
       : null,
-    status: minutes ? boostedStatus : status,
+    status: minutes ? boostedStatus : restoredStatus,
   };
   replaceDevice(optimistic);
   renderDevices();

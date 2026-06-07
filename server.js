@@ -307,6 +307,12 @@ function buildBoostStatus(status) {
   throw new Error("Boost is only available in Cool or Heat mode.");
 }
 
+function boostRestoreStatus(device) {
+  return device && device.boostTimer && device.boostTimer.restoreStatus
+    ? normalizedStatus(device.boostTimer.restoreStatus)
+    : null;
+}
+
 function validIpAddress(ipAddress) {
   const parts = String(ipAddress || "").split(".");
   return parts.length === 4 && parts.every((part) => {
@@ -758,10 +764,16 @@ async function handleDeviceApply(deviceId, request, response) {
   }
 
   const payload = await parseJsonBody(request);
+  const requestedStatus = payload.status && typeof payload.status === "object" ? payload.status : {};
+  const restoreStatus = device.boostTimer
+    && payload.cancelBoost !== false
+    && requestedStatus.operation === false
+    ? boostRestoreStatus(device)
+    : null;
   const nextStatus = {
     ...defaultStatus(),
-    ...(device.status || {}),
-    ...(payload.status && typeof payload.status === "object" ? payload.status : {}),
+    ...(restoreStatus || device.status || {}),
+    ...requestedStatus,
   };
   const { saved, debug } = await applyDeviceStatus(device, nextStatus, {
     forceOff: Boolean(payload.forceOff),
@@ -824,8 +836,17 @@ async function handleDeviceBoost(deviceId, request, response) {
 
   const payload = await parseJsonBody(request);
   if (payload.minutes === null || payload.minutes === undefined || payload.minutes === "" || payload.minutes === 0) {
+    const restoreStatus = boostRestoreStatus(device);
+    if (!restoreStatus) {
+      sendJson(response, 200, {
+        device: safeDevice(db.setDeviceBoostTimer(device.id, null)),
+      });
+      return;
+    }
+    const { saved, debug } = await applyDeviceStatus(device, restoreStatus);
     sendJson(response, 200, {
-      device: safeDevice(db.setDeviceBoostTimer(device.id, null)),
+      device: safeDevice(db.setDeviceBoostTimer(saved.id, null)),
+      debug,
     });
     return;
   }
@@ -837,9 +858,7 @@ async function handleDeviceBoost(deviceId, request, response) {
   }
 
   const currentStatus = normalizedStatus(device.status);
-  const restoreStatus = device.boostTimer && device.boostTimer.restoreStatus
-    ? normalizedStatus(device.boostTimer.restoreStatus)
-    : currentStatus;
+  const restoreStatus = boostRestoreStatus(device) || currentStatus;
   const boostStatus = buildBoostStatus(currentStatus);
   const { saved, debug } = await applyDeviceStatus(device, boostStatus);
   const until = new Date(Date.now() + minutes * 60 * 1000).toISOString();
@@ -894,9 +913,7 @@ async function runDueBoostTimers() {
     const dueDevices = db.listDueBoostTimerDevices();
     for (const device of dueDevices) {
       try {
-        const restoreStatus = device.boostTimer && device.boostTimer.restoreStatus
-          ? normalizedStatus(device.boostTimer.restoreStatus)
-          : null;
+        const restoreStatus = boostRestoreStatus(device);
         if (!restoreStatus) {
           db.setDeviceBoostTimer(device.id, null);
           continue;
