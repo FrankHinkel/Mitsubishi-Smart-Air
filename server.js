@@ -275,6 +275,32 @@ function sameSubnet(left, right) {
   return String(left || "").split(".").slice(0, 3).join(".") === String(right || "").split(".").slice(0, 3).join(".");
 }
 
+function isPrivateIpv4(ipAddress) {
+  const parts = String(ipAddress || "").split(".").map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
+    return false;
+  }
+
+  return parts[0] === 10
+    || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    || (parts[0] === 192 && parts[1] === 168);
+}
+
+function isLikelyVirtualInterface(name) {
+  return /^(lo|docker\d*|br-[0-9a-f]+|veth[0-9a-f]+|virbr\d*|cni\d*|flannel\d*|podman\d*|tailscale\d*|zt\w*|wg\d*|tun\d*|tap\d*|utun\d*|vboxnet\d*|vmnet\d*)$/i.test(String(name || ""));
+}
+
+function interfacePriority(name) {
+  const interfaceName = String(name || "").toLowerCase();
+  if (/^(eth\d*|en\d*|end\d*|eno\d*|ens\d*|enp\d*|wlan\d*|wl\w*|wifi\d*|lan\d*)$/.test(interfaceName)) {
+    return 0;
+  }
+  if (isLikelyVirtualInterface(interfaceName)) {
+    return 3;
+  }
+  return 1;
+}
+
 function parseArpTable(text) {
   return String(text || "")
     .split(/\r?\n/)
@@ -343,17 +369,35 @@ function configuredSubnetHosts() {
 }
 
 function localSubnetHosts() {
-  const hosts = [];
+  const groups = [];
   const interfaces = os.networkInterfaces();
-  for (const entries of Object.values(interfaces)) {
+  for (const [name, entries] of Object.entries(interfaces)) {
+    if (isLikelyVirtualInterface(name)) {
+      continue;
+    }
+
+    const subnetSet = new Set();
     for (const entry of entries || []) {
-      if (entry.internal || entry.family !== "IPv4" || !validIpAddress(entry.address)) {
+      if (entry.internal || entry.family !== "IPv4" || !validIpAddress(entry.address) || !isPrivateIpv4(entry.address)) {
         continue;
       }
-      hosts.push(...subnetHosts(`${entry.address}/24`));
+      for (const host of subnetHosts(`${entry.address}/24`)) {
+        subnetSet.add(host);
+      }
+    }
+
+    if (subnetSet.size) {
+      groups.push({
+        name,
+        priority: interfacePriority(name),
+        hosts: [...subnetSet],
+      });
     }
   }
-  return hosts;
+
+  return groups
+    .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, "en"))
+    .flatMap((group) => group.hosts);
 }
 
 function buildCandidateMap(neighborEntries, options = {}) {
