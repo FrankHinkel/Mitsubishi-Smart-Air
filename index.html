@@ -41,6 +41,14 @@
           <nav class="top-actions" aria-label="Application actions">
             <button class="secondary" type="button" id="refreshAllButton" aria-label="Refresh all devices" title="Refresh all devices"></button>
             <button class="secondary" type="button" id="editListButton" aria-label="Edit device list" title="Edit device list"></button>
+            <div class="top-zoom-menu symbol-menu">
+              <button class="secondary" type="button" id="zoomMenuButton" aria-label="Page zoom" title="Page zoom"></button>
+              <div class="popup-menu zoom-menu" id="zoomMenu" hidden>
+                <button type="button" id="zoomOutButton" aria-label="Zoom out" title="Zoom out"></button>
+                <output class="zoom-value" id="zoomValue">100%</output>
+                <button type="button" id="zoomInButton" aria-label="Zoom in" title="Zoom in"></button>
+              </div>
+            </div>
             <button class="ghost" type="button" id="logoutButton" aria-label="Logout" title="Logout"></button>
           </nav>
         </header>

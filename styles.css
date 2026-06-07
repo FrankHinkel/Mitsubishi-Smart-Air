@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --page-scale: 1;
   --ink: #17201c;
   --muted: #637169;
   --line: #d7ded8;
@@ -33,6 +34,15 @@ body {
   color: var(--ink);
   background: var(--surface);
   overflow-anchor: none;
+  zoom: var(--page-scale);
+}
+
+@supports not (zoom: 1) {
+  body {
+    transform: scale(var(--page-scale));
+    transform-origin: top center;
+    width: calc(100% / var(--page-scale));
+  }
 }
 
 button,
@@ -171,15 +181,43 @@ label span,
 
 .top-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
-.top-actions button {
+.top-actions > button,
+.top-actions > .top-zoom-menu > button {
   display: grid;
   min-width: 42px;
   place-items: center;
   padding: 0;
+}
+
+.top-zoom-menu {
+  position: relative;
+}
+
+.zoom-menu {
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 6px;
+  min-width: auto;
+}
+
+.zoom-menu button {
+  display: grid;
+  min-width: 36px;
+  min-height: 36px;
+  place-items: center;
+  padding: 0;
+}
+
+.zoom-value {
+  min-width: 58px;
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 850;
+  text-align: center;
 }
 
 .primary {
@@ -767,7 +805,7 @@ label span,
   }
 
   .top-actions {
-    grid-template-columns: repeat(3, auto);
+    grid-template-columns: repeat(4, auto);
     justify-content: end;
   }
 

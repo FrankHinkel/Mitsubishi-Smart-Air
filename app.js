@@ -35,6 +35,10 @@ const TEMP_STEP = 0.5;
 const DEVICE_WRITE_DELAY_MS = 1400;
 const STATUS_POLL_INTERVAL_MS = 60000;
 const DEFAULT_APP_TITLE = "Smart Air";
+const UI_SCALE_KEY = "smart-air-ui-scale";
+const UI_SCALE_MIN = 0.5;
+const UI_SCALE_MAX = 2;
+const UI_SCALE_STEP = 0.1;
 
 const LUCIDE_ICON_NODES = {
   "refresh-cw": [
@@ -51,6 +55,17 @@ const LUCIDE_ICON_NODES = {
     ["path", { d: "m16 17 5-5-5-5" }],
     ["path", { d: "M21 12H9" }],
     ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }],
+  ],
+  "zoom-in": [
+    ["circle", { cx: "11", cy: "11", r: "8" }],
+    ["line", { x1: "21", x2: "16.65", y1: "21", y2: "16.65" }],
+    ["line", { x1: "11", x2: "11", y1: "8", y2: "14" }],
+    ["line", { x1: "8", x2: "14", y1: "11", y2: "11" }],
+  ],
+  "zoom-out": [
+    ["circle", { cx: "11", cy: "11", r: "8" }],
+    ["line", { x1: "21", x2: "16.65", y1: "21", y2: "16.65" }],
+    ["line", { x1: "8", x2: "14", y1: "11", y2: "11" }],
   ],
   thermometer: [
     ["path", { d: "M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" }],
@@ -152,6 +167,11 @@ const els = {
   refreshAllButton: document.querySelector("#refreshAllButton"),
   rescanEditButton: document.querySelector("#rescanEditButton"),
   saveListButton: document.querySelector("#saveListButton"),
+  zoomInButton: document.querySelector("#zoomInButton"),
+  zoomMenu: document.querySelector("#zoomMenu"),
+  zoomMenuButton: document.querySelector("#zoomMenuButton"),
+  zoomOutButton: document.querySelector("#zoomOutButton"),
+  zoomValue: document.querySelector("#zoomValue"),
 };
 
 let devices = [];
@@ -176,6 +196,7 @@ let stableScroll = {
   y: 0,
 };
 let stableScrollTimer = null;
+let uiScale = 1;
 
 function createElement(tag, options = {}) {
   const element = document.createElement(tag);
@@ -226,6 +247,56 @@ function setButtonIcon(button, iconName, label) {
   button.setAttribute("aria-label", label);
   button.setAttribute("title", label);
   button.replaceChildren(createLucideIcon(iconName, "button-icon"));
+}
+
+function normalizeUiScale(value) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  const stepped = Math.round(parsed / UI_SCALE_STEP) * UI_SCALE_STEP;
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, Number(stepped.toFixed(1))));
+}
+
+function readStoredUiScale() {
+  try {
+    return normalizeUiScale(window.localStorage.getItem(UI_SCALE_KEY));
+  } catch {
+    return 1;
+  }
+}
+
+function updateZoomControls() {
+  if (els.zoomValue) {
+    els.zoomValue.textContent = `${Math.round(uiScale * 100)}%`;
+  }
+  if (els.zoomOutButton) {
+    els.zoomOutButton.disabled = uiScale <= UI_SCALE_MIN;
+  }
+  if (els.zoomInButton) {
+    els.zoomInButton.disabled = uiScale >= UI_SCALE_MAX;
+  }
+  if (els.zoomMenuButton) {
+    els.zoomMenuButton.setAttribute("aria-label", `Page zoom ${Math.round(uiScale * 100)} percent`);
+    els.zoomMenuButton.setAttribute("title", `Page zoom ${Math.round(uiScale * 100)}%`);
+  }
+}
+
+function applyUiScale(nextScale, options = {}) {
+  uiScale = normalizeUiScale(nextScale);
+  document.documentElement.style.setProperty("--page-scale", String(uiScale));
+  updateZoomControls();
+  if (options.persist !== false) {
+    try {
+      window.localStorage.setItem(UI_SCALE_KEY, String(uiScale));
+    } catch {
+      // Ignore local persistence issues.
+    }
+  }
+}
+
+function changeUiScale(delta) {
+  applyUiScale(uiScale + delta);
 }
 
 function currentStableScrollSnapshot() {
@@ -1470,9 +1541,33 @@ async function loadSettings() {
 function bindEvents() {
   setButtonIcon(els.refreshAllButton, "refresh-cw", "Refresh all devices");
   setButtonIcon(els.editListButton, "pencil", "Edit device list");
+  setButtonIcon(els.zoomMenuButton, "zoom-in", "Page zoom");
+  setButtonIcon(els.zoomOutButton, "zoom-out", "Zoom out");
+  setButtonIcon(els.zoomInButton, "zoom-in", "Zoom in");
   setButtonIcon(els.logoutButton, "log-out", "Logout");
   els.loginForm.addEventListener("submit", login);
   els.logoutButton.addEventListener("click", logout);
+  if (els.zoomMenuButton && els.zoomMenu) {
+    preventPointerFocusScroll(els.zoomMenuButton);
+    els.zoomMenuButton.addEventListener("click", guardedControlClick(els.zoomMenuButton, (event, scroll) => {
+      const shouldOpen = els.zoomMenu.hidden;
+      closeOpenMenus(els.zoomMenu);
+      els.zoomMenu.hidden = !shouldOpen;
+      restoreScroll(scroll);
+    }));
+  }
+  if (els.zoomOutButton) {
+    preventPointerFocusScroll(els.zoomOutButton);
+    els.zoomOutButton.addEventListener("click", guardedControlClick(els.zoomOutButton, () => {
+      changeUiScale(-UI_SCALE_STEP);
+    }));
+  }
+  if (els.zoomInButton) {
+    preventPointerFocusScroll(els.zoomInButton);
+    els.zoomInButton.addEventListener("click", guardedControlClick(els.zoomInButton, () => {
+      changeUiScale(UI_SCALE_STEP);
+    }));
+  }
   els.refreshAllButton.addEventListener("click", () => {
     refreshAllDevices({ showErrors: true }).catch((error) => setMessage(friendlyError(error), "error"));
   });
@@ -1499,6 +1594,7 @@ function bindEvents() {
   }
 }
 
+applyUiScale(readStoredUiScale(), { persist: false });
 bindEvents();
 loadSettings()
   .catch(() => {})
