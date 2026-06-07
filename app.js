@@ -504,7 +504,7 @@ function normalizeTemp(value) {
 }
 
 function formatTemp(value) {
-  return Number.isFinite(value) ? `${value.toFixed(1)} C` : "--";
+  return Number.isFinite(value) ? `${value.toFixed(1)}°` : "--";
 }
 
 function formatUsage(value) {
