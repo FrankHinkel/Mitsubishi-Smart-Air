@@ -55,6 +55,10 @@ const LUCIDE_ICON_NODES = {
   thermometer: [
     ["path", { d: "M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" }],
   ],
+  power: [
+    ["path", { d: "M12 2v10" }],
+    ["path", { d: "M18.4 6.6a9 9 0 1 1-12.77.04" }],
+  ],
   "biceps-flexed": [
     ["path", { d: "M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 10 2a3 3 0 0 1 3 3 2 2 0 0 1-2 2c-1.105 0-1.64-.444-2-1" }],
     ["path", { d: "M15 14a5 5 0 0 0-7.584 2" }],
@@ -801,20 +805,20 @@ function renderDeviceCard(device) {
   }
   titleBlock.append(titleLine);
 
-  const switchLabel = createElement("label", { className: "switch" });
-  const power = document.createElement("input");
-  power.type = "checkbox";
-  power.checked = Boolean(status.operation);
-  power.setAttribute("aria-label", `Power ${device.name}`);
-  power.addEventListener("change", () => {
-    power.blur();
-    queueDevicePatch(device.id, { operation: power.checked });
+  const headerActions = createElement("div", { className: "device-header-actions" });
+  const powerButton = createElement("button", {
+    className: `power-button${status.operation ? " is-on" : ""}`,
   });
-  switchLabel.append(
-    power,
-    createElement("span", { className: "switch-track" })
-  );
-  header.append(titleBlock, switchLabel);
+  powerButton.type = "button";
+  powerButton.setAttribute("aria-label", `${status.operation ? "Turn off" : "Turn on"} ${device.name}`);
+  powerButton.append(createLucideIcon("power", "power-button-icon"));
+  preventPointerFocusScroll(powerButton);
+  powerButton.addEventListener("click", guardedControlClick(powerButton, () => {
+    queueDevicePatch(device.id, { operation: !status.operation });
+  }));
+
+  headerActions.append(renderBoostMenu(device), powerButton);
+  header.append(titleBlock, headerActions);
 
   const facts = createElement("div", { className: "device-facts" });
   if (Number.isFinite(status.electric) && status.electric > 0) {
@@ -851,7 +855,6 @@ function renderDeviceCard(device) {
     renderSymbolMenu("Fan", status.airFlow, FAN_OPTIONS, (value) => {
       queueDevicePatch(device.id, { airFlow: value });
     }),
-    renderBoostMenu(device),
     renderSleepMenu(device)
   );
 

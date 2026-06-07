@@ -802,8 +802,16 @@ async function handleDeviceSleep(deviceId, request, response) {
   }
 
   const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  let nextDevice = device;
+  if (!normalizedStatus(device.status).operation) {
+    const applied = await applyDeviceStatus(device, {
+      ...normalizedStatus(device.status),
+      operation: true,
+    });
+    nextDevice = applied.saved;
+  }
   sendJson(response, 200, {
-    device: safeDevice(db.setDeviceSleepTimer(device.id, until)),
+    device: safeDevice(db.setDeviceSleepTimer(nextDevice.id, until)),
   });
 }
 
