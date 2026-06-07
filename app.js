@@ -610,7 +610,10 @@ function renderEditRow(item, index) {
 function renderEditList() {
   editItems.sort(compareDevices);
   if (!editItems.length) {
-    els.editList.replaceChildren(createElement("p", { className: "empty-copy", text: "No devices in the database." }));
+    els.editList.replaceChildren(createElement("p", {
+      className: "empty-copy",
+      text: "No devices in the database yet. Add one manually above or use Scan below.",
+    }));
     return;
   }
   els.editList.replaceChildren(...editItems.map(renderEditRow));

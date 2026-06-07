@@ -72,6 +72,8 @@ If Docker cannot infer the LAN subnet, set `SCAN_SUBNETS` in `docker-compose.yml
 SCAN_SUBNETS: 192.168.178.0/24
 ```
 
+The provided compose file now defaults `SCAN_SUBNETS` to `192.168.178.0/24` for this setup and increases the TCP probe timeout a bit for slower Raspberry Pi scans. You can still override `SCAN_SUBNETS` from the shell when your LAN uses a different range.
+
 If discovery still misses a unit, open `Edit list` and add the IP address manually. The server probes the address immediately and stores the device with its detected Aircon ID and protocol data.
 
 ## Configuration
