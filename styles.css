@@ -760,7 +760,7 @@ label span,
   display: none !important;
 }
 
-@media (min-width: 680px) {
+@media (min-width: 500px) {
   .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
@@ -798,7 +798,7 @@ label span,
   }
 }
 
-@media (min-width: 860px) {
+@media (min-width: 380px) {
   .compact-controls {
     grid-template-columns: minmax(0, 1fr) 46px 46px auto;
   }
