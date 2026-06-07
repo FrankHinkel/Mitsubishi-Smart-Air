@@ -7,7 +7,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json ./
-COPY app.js database.js device-api.js index.html measures.js server.js styles.css ./
+COPY app.js database.js device-api.js favicon.svg index.html measures.js server.js styles.css ./
 
 RUN mkdir -p /data /data/measures
 
