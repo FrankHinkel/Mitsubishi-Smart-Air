@@ -8,6 +8,7 @@ const ROOT = __dirname;
 const MEASURES_DIR = process.env.MEASURES_DIR || path.join(ROOT, "measures");
 const MAX_BUFFER = 8 * 1024 * 1024;
 const BUCKET_MINUTES = 10;
+const TEMPERATURE_KINDS = new Set(["indoor", "outdoor"]);
 
 function ensureMeasuresDir() {
   fs.mkdirSync(MEASURES_DIR, { recursive: true });
@@ -20,6 +21,20 @@ function runSql(dbPath, sql) {
     encoding: "utf8",
     maxBuffer: MAX_BUFFER,
   });
+}
+
+function runSqlJson(dbPath, sql) {
+  ensureMeasuresDir();
+  const output = execFileSync("sqlite3", ["-json", dbPath], {
+    input: `${sql}\n`,
+    encoding: "utf8",
+    maxBuffer: MAX_BUFFER,
+  });
+  const text = String(output || "").trim();
+  if (!text) {
+    return [];
+  }
+  return JSON.parse(text);
 }
 
 function sqlText(value) {
@@ -53,6 +68,172 @@ function bucketIso(date = new Date()) {
 function measuresDbPath(date = new Date()) {
   const monthKey = bucketDate(date).toISOString().slice(0, 7);
   return path.join(MEASURES_DIR, `measures_${monthKey}.sqlite`);
+}
+
+function parseIsoDate(value) {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function monthStart(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+function nextMonth(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+}
+
+function listMeasuresDbPaths(fromDate, toDate) {
+  const paths = [];
+  let current = monthStart(fromDate);
+  const limit = monthStart(toDate);
+  while (current <= limit) {
+    const dbPath = measuresDbPath(current);
+    if (fs.existsSync(dbPath)) {
+      paths.push(dbPath);
+    }
+    current = nextMonth(current);
+  }
+  return paths;
+}
+
+function asNonNegativeInt(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseDeviceSetting(value) {
+  try {
+    return JSON.parse(String(value || "{}"));
+  } catch {
+    return {};
+  }
+}
+
+function normalizeTemperatureKind(value) {
+  if (value === null || value === undefined || value === "" || value === "all") {
+    return null;
+  }
+  const normalized = String(value).toLowerCase();
+  if (!TEMPERATURE_KINDS.has(normalized)) {
+    throw new Error("Invalid temperatureKind. Use indoor, outdoor, or all.");
+  }
+  return normalized;
+}
+
+function buildUnionSelect(aliases, options) {
+  const conditions = [
+    `recorded_at >= ${sqlText(options.fromIso)}`,
+    `recorded_at < ${sqlText(options.toIso)}`,
+    `device_name = ${sqlText(options.deviceName)}`,
+  ];
+  if (options.temperatureKind) {
+    conditions.push(`temperature_kind = ${sqlText(options.temperatureKind)}`);
+  }
+  const whereClause = conditions.join(" AND ");
+  return aliases
+    .map((alias) => `
+      SELECT
+        recorded_at,
+        bucket_at,
+        device_name,
+        temperature_kind,
+        temperature,
+        device_setting
+      FROM ${alias}.measurements
+      WHERE ${whereClause}
+    `)
+    .join("\nUNION ALL\n");
+}
+
+function attachSql(dbPaths) {
+  return dbPaths
+    .map((dbPath, index) => `ATTACH DATABASE ${sqlText(dbPath)} AS m${index};`)
+    .join("\n");
+}
+
+function queryDeviceMeasurements(options) {
+  const fromDate = parseIsoDate(options.from);
+  const toDate = parseIsoDate(options.to);
+  if (!fromDate || !toDate || !(toDate > fromDate)) {
+    throw new Error("Invalid range. Use ISO dates and ensure to > from.");
+  }
+
+  const limit = Math.min(5000, Math.max(1, asNonNegativeInt(options.limit, 500)));
+  const offset = Math.min(100000, asNonNegativeInt(options.offset, 0));
+  const temperatureKind = normalizeTemperatureKind(options.temperatureKind);
+  const dbPaths = listMeasuresDbPaths(fromDate, toDate);
+  if (!dbPaths.length) {
+    return {
+      hasMore: false,
+      limit,
+      measurements: [],
+      offset,
+      total: 0,
+    };
+  }
+
+  const aliases = dbPaths.map((_, index) => `m${index}`);
+  const unionSelect = buildUnionSelect(aliases, {
+    deviceName: String(options.deviceName || "").trim(),
+    fromIso: fromDate.toISOString(),
+    temperatureKind,
+    toIso: toDate.toISOString(),
+  });
+  const attachStatements = attachSql(dbPaths);
+
+  const countRows = runSqlJson(":memory:", `
+    ${attachStatements}
+    SELECT COUNT(*) AS total
+    FROM (
+      ${unionSelect}
+    );
+  `);
+  const total = Number(countRows[0] && countRows[0].total) || 0;
+  if (!total || offset >= total) {
+    return {
+      hasMore: false,
+      limit,
+      measurements: [],
+      offset,
+      total,
+    };
+  }
+
+  const dataRows = runSqlJson(":memory:", `
+    ${attachStatements}
+    SELECT
+      recorded_at,
+      bucket_at,
+      device_name,
+      temperature_kind,
+      temperature,
+      device_setting
+    FROM (
+      ${unionSelect}
+    )
+    ORDER BY recorded_at DESC, temperature_kind ASC
+    LIMIT ${limit + 1}
+    OFFSET ${offset};
+  `);
+
+  const hasMore = dataRows.length > limit;
+  const measurements = dataRows.slice(0, limit).map((row) => ({
+    bucketAt: row.bucket_at,
+    deviceName: row.device_name,
+    deviceSetting: parseDeviceSetting(row.device_setting),
+    recordedAt: row.recorded_at,
+    temperature: Number(row.temperature),
+    temperatureKind: row.temperature_kind,
+  }));
+
+  return {
+    hasMore,
+    limit,
+    measurements,
+    offset,
+    total,
+  };
 }
 
 function ensureMeasuresSchema(dbPath) {
@@ -155,5 +336,6 @@ module.exports = {
   MEASURES_DIR,
   bucketIso,
   measuresDbPath,
+  queryDeviceMeasurements,
   recordDeviceMeasurements,
 };

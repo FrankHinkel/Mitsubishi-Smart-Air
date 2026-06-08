@@ -88,6 +88,7 @@ PORT=13920
 DATA_DIR=/data
 DEFAULT_ADMIN_USERNAME=admin
 DEFAULT_ADMIN_PASSWORD=admin
+REST_API_KEY=choose-a-long-random-secret
 MAC_PREFIXES=a0:43:b0
 SCAN_PORTS=51443
 SCAN_PROTOCOLS=http,https
@@ -103,6 +104,54 @@ SLEEP_TIMER_MAX_RETRIES=3
 The server refreshes visible device status in the background every `STATUS_POLL_INTERVAL_MS` milliseconds. The UI renders cached SQLite values immediately and updates silently when fresh values arrive.
 
 Sleep timers are stored in SQLite. When a timer expires, the server sends an off command. If that command fails, it retries up to `SLEEP_TIMER_MAX_RETRIES` times with `SLEEP_TIMER_RETRY_DELAY_MS` milliseconds between attempts.
+
+## REST API for operating data
+
+The server exposes a read-only endpoint for measurements stored in monthly SQLite files plus the current device status from `app.sqlite`.
+
+Authentication uses an API key header (independent from browser login):
+
+```text
+x-api-key: <REST_API_KEY>
+```
+
+Set `REST_API_KEY` in your environment (for Docker Compose via `.env` or shell export before `docker compose up`).
+
+Endpoint:
+
+```text
+GET /api/devices/{id}/measurements
+```
+
+Query parameters:
+
+- `from` ISO timestamp (optional, default: `to - 24h`)
+- `to` ISO timestamp (optional, default: now)
+- `temperatureKind` one of `indoor`, `outdoor`, `all` (optional, default: `all`)
+- `limit` integer `1..5000` (optional, default: `500`)
+- `offset` integer `>=0` (optional, default: `0`)
+
+Example:
+
+```sh
+curl -s \
+	-H "x-api-key: $REST_API_KEY" \
+	"http://127.0.0.1:13920/api/devices/1/measurements?from=2026-06-01T00:00:00Z&to=2026-06-08T00:00:00Z&temperatureKind=indoor&limit=200&offset=0"
+```
+
+Response fields:
+
+- `device`: basic device info and current cached status from `app.sqlite`
+- `measurements`: list of rows from monthly measurement SQLite files
+- `pagination`: `limit`, `offset`, `returned`, `total`, `hasMore`
+- `range`: normalized `from`/`to`
+
+Error codes:
+
+- `400` invalid range or invalid `temperatureKind`
+- `401` missing or invalid API key
+- `404` unknown device id
+- `503` `REST_API_KEY` not configured on server
 
 ## Current features
 

@@ -24,6 +24,7 @@ const PORT = Number.parseInt(process.env.PORT || "13920", 10);
 const ROOT = __dirname;
 const SESSION_COOKIE = "msa_session";
 const SESSION_DAYS = Number.parseInt(process.env.SESSION_DAYS || "36500", 10);
+const REST_API_KEY = String(process.env.REST_API_KEY || "").trim();
 const SCAN_TIMEOUT_MS = Number.parseInt(process.env.SCAN_TIMEOUT_MS || "550", 10);
 const SCAN_CONCURRENCY = Number.parseInt(process.env.SCAN_CONCURRENCY || "64", 10);
 const MAX_SCAN_HOSTS = Number.parseInt(process.env.MAX_SCAN_HOSTS || "512", 10);
@@ -201,6 +202,65 @@ function publicApiRoute(method, pathname) {
     || (method === "GET" && pathname === "/api/me")
     || (method === "POST" && pathname === "/api/login")
     || (method === "POST" && pathname === "/api/logout");
+}
+
+function secureEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""), "utf8");
+  const rightBuffer = Buffer.from(String(right || ""), "utf8");
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function requireRestApiKey(request, response) {
+  if (!REST_API_KEY) {
+    sendJson(response, 503, { error: "REST API key is not configured." });
+    return false;
+  }
+  const provided = String(request.headers["x-api-key"] || "").trim();
+  if (!provided || !secureEqual(provided, REST_API_KEY)) {
+    sendJson(response, 401, { error: "Invalid API key." });
+    return false;
+  }
+  return true;
+}
+
+function parseIsoRange(url) {
+  const toRaw = url.searchParams.get("to") || new Date().toISOString();
+  const toDate = new Date(toRaw);
+  if (!Number.isFinite(toDate.getTime())) {
+    throw new Error("Invalid to parameter. Use an ISO timestamp.");
+  }
+  const fromRaw = url.searchParams.get("from")
+    || new Date(toDate.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const fromDate = new Date(fromRaw);
+  if (!Number.isFinite(fromDate.getTime())) {
+    throw new Error("Invalid from parameter. Use an ISO timestamp.");
+  }
+  if (toDate <= fromDate) {
+    throw new Error("Invalid range. to must be greater than from.");
+  }
+  return {
+    from: fromDate.toISOString(),
+    to: toDate.toISOString(),
+  };
+}
+
+function parsePagination(url) {
+  const limitRaw = Number.parseInt(String(url.searchParams.get("limit") || "500"), 10);
+  const offsetRaw = Number.parseInt(String(url.searchParams.get("offset") || "0"), 10);
+  const limit = Number.isInteger(limitRaw) ? Math.min(5000, Math.max(1, limitRaw)) : 500;
+  const offset = Number.isInteger(offsetRaw) ? Math.min(100000, Math.max(0, offsetRaw)) : 0;
+  return { limit, offset };
+}
+
+function parseTemperatureKind(url) {
+  const value = String(url.searchParams.get("temperatureKind") || "all").toLowerCase();
+  if (["all", "indoor", "outdoor"].includes(value)) {
+    return value;
+  }
+  throw new Error("Invalid temperatureKind. Use indoor, outdoor, or all.");
 }
 
 function recordMeasurements(device) {
@@ -1006,6 +1066,54 @@ async function handleApi(request, response, pathname, url) {
       db.deleteSession(user.token);
     }
     sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie() });
+    return;
+  }
+
+  const measurementsMatch = pathname.match(/^\/api\/devices\/(\d+)\/measurements$/);
+  if (request.method === "GET" && measurementsMatch) {
+    if (!requireRestApiKey(request, response)) {
+      return;
+    }
+    const deviceId = Number.parseInt(measurementsMatch[1], 10);
+    const device = db.getDevice(deviceId);
+    if (!device) {
+      sendJson(response, 404, { error: "Device not found." });
+      return;
+    }
+    try {
+      const range = parseIsoRange(url);
+      const pagination = parsePagination(url);
+      const temperatureKind = parseTemperatureKind(url);
+      const result = measures.queryDeviceMeasurements({
+        deviceName: device.name || `WF-RAC ${device.ipAddress}`,
+        from: range.from,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        temperatureKind,
+        to: range.to,
+      });
+      sendJson(response, 200, {
+        device: {
+          id: device.id,
+          ipAddress: device.ipAddress,
+          lastSeenAt: device.lastSeenAt || null,
+          name: device.name,
+          status: device.status || defaultStatus(),
+        },
+        measurements: result.measurements,
+        pagination: {
+          hasMore: result.hasMore,
+          limit: result.limit,
+          offset: result.offset,
+          returned: result.measurements.length,
+          total: result.total,
+        },
+        range,
+        temperatureKind,
+      });
+    } catch (error) {
+      sendError(response, 400, error);
+    }
     return;
   }
 
