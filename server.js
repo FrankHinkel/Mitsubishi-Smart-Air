@@ -1117,6 +1117,47 @@ async function handleApi(request, response, pathname, url) {
     return;
   }
 
+  if (request.method === "GET" && pathname === "/api/devices/measurements") {
+    if (!requireRestApiKey(request, response)) {
+      return;
+    }
+    try {
+      const range = parseIsoRange(url);
+      const pagination = parsePagination(url);
+      const temperatureKind = parseTemperatureKind(url);
+      const result = measures.queryMeasurements({
+        from: range.from,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        temperatureKind,
+        to: range.to,
+      });
+      const visibleDevices = db.listDevices({ includeHidden: false });
+      sendJson(response, 200, {
+        devices: visibleDevices.map((device) => ({
+          id: device.id,
+          ipAddress: device.ipAddress,
+          lastSeenAt: device.lastSeenAt || null,
+          name: device.name,
+          status: device.status || defaultStatus(),
+        })),
+        measurements: result.measurements,
+        pagination: {
+          hasMore: result.hasMore,
+          limit: result.limit,
+          offset: result.offset,
+          returned: result.measurements.length,
+          total: result.total,
+        },
+        range,
+        temperatureKind,
+      });
+    } catch (error) {
+      sendError(response, 400, error);
+    }
+    return;
+  }
+
   const user = currentUser(request);
   if (!user && !publicApiRoute(request.method, pathname)) {
     sendJson(response, 401, { error: "Login required." });

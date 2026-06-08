@@ -125,8 +125,10 @@ function buildUnionSelect(aliases, options) {
   const conditions = [
     `recorded_at >= ${sqlText(options.fromIso)}`,
     `recorded_at < ${sqlText(options.toIso)}`,
-    `device_name = ${sqlText(options.deviceName)}`,
   ];
+  if (options.deviceName) {
+    conditions.push(`device_name = ${sqlText(options.deviceName)}`);
+  }
   if (options.temperatureKind) {
     conditions.push(`temperature_kind = ${sqlText(options.temperatureKind)}`);
   }
@@ -153,6 +155,18 @@ function attachSql(dbPaths) {
 }
 
 function queryDeviceMeasurements(options) {
+  const deviceName = String(options.deviceName || "").trim();
+  if (!deviceName) {
+    throw new Error("Missing deviceName.");
+  }
+
+  return queryMeasurements({
+    ...options,
+    deviceName,
+  });
+}
+
+function queryMeasurements(options) {
   const fromDate = parseIsoDate(options.from);
   const toDate = parseIsoDate(options.to);
   if (!fromDate || !toDate || !(toDate > fromDate)) {
@@ -175,7 +189,7 @@ function queryDeviceMeasurements(options) {
 
   const aliases = dbPaths.map((_, index) => `m${index}`);
   const unionSelect = buildUnionSelect(aliases, {
-    deviceName: String(options.deviceName || "").trim(),
+    deviceName: options.deviceName ? String(options.deviceName).trim() : "",
     fromIso: fromDate.toISOString(),
     temperatureKind,
     toIso: toDate.toISOString(),
@@ -336,6 +350,7 @@ module.exports = {
   MEASURES_DIR,
   bucketIso,
   measuresDbPath,
+  queryMeasurements,
   queryDeviceMeasurements,
   recordDeviceMeasurements,
 };

@@ -121,6 +121,7 @@ Endpoint:
 
 ```text
 GET /api/devices/{id}/measurements
+GET /api/devices/measurements
 ```
 
 Query parameters:
@@ -139,10 +140,25 @@ curl -s \
 	"http://127.0.0.1:13920/api/devices/1/measurements?from=2026-06-01T00:00:00Z&to=2026-06-08T00:00:00Z&temperatureKind=indoor&limit=200&offset=0"
 ```
 
-Response fields:
+Example (all devices):
+
+```sh
+curl -s \
+	-H "x-api-key: $REST_API_KEY" \
+	"http://127.0.0.1:13920/api/devices/measurements?from=2026-06-01T00:00:00Z&to=2026-06-08T00:00:00Z&temperatureKind=all&limit=500&offset=0"
+```
+
+Response fields (`/api/devices/{id}/measurements`):
 
 - `device`: basic device info and current cached status from `app.sqlite`
 - `measurements`: list of rows from monthly measurement SQLite files
+- `pagination`: `limit`, `offset`, `returned`, `total`, `hasMore`
+- `range`: normalized `from`/`to`
+
+Response fields (`/api/devices/measurements`):
+
+- `devices`: visible device list with current cached status from `app.sqlite`
+- `measurements`: list of rows from monthly measurement SQLite files across all devices
 - `pagination`: `limit`, `offset`, `returned`, `total`, `hasMore`
 - `range`: normalized `from`/`to`
 
