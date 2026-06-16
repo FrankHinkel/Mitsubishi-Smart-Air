@@ -33,6 +33,8 @@ const STATUS_POLL_START_DELAY_MS = Number.parseInt(process.env.STATUS_POLL_START
 const SLEEP_TIMER_CHECK_INTERVAL_MS = Number.parseInt(process.env.SLEEP_TIMER_CHECK_INTERVAL_MS || "30000", 10);
 const SLEEP_TIMER_RETRY_DELAY_MS = Number.parseInt(process.env.SLEEP_TIMER_RETRY_DELAY_MS || "180000", 10);
 const SLEEP_TIMER_MAX_RETRIES = Number.parseInt(process.env.SLEEP_TIMER_MAX_RETRIES || "3", 10);
+const DEVICE_OPERATION_RETRIES = 3;
+const DEVICE_OPERATION_RETRY_DELAY_MS = 3000;
 const MAC_PREFIXES = parseCsv(process.env.MAC_PREFIXES || "a0:43:b0").map(normalizeMacPrefix);
 const SCAN_PORTS = parsePorts(process.env.SCAN_PORTS || "51443");
 const SCAN_PROTOCOLS = parseCsv(process.env.SCAN_PROTOCOLS || "http,https").filter((value) => value === "http" || value === "https");
@@ -253,6 +255,29 @@ function parsePagination(url) {
   const limit = Number.isInteger(limitRaw) ? Math.min(5000, Math.max(1, limitRaw)) : 500;
   const offset = Number.isInteger(offsetRaw) ? Math.min(100000, Math.max(0, offsetRaw)) : 0;
   return { limit, offset };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryDeviceOperation(task, options = {}) {
+  const attempts = Math.max(1, Number.parseInt(options.attempts, 10) || DEVICE_OPERATION_RETRIES);
+  const delayMs = Math.max(0, Number.parseInt(options.delayMs, 10) || DEVICE_OPERATION_RETRY_DELAY_MS);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await task(attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw lastError || new Error("No response from device.");
 }
 
 function parseTemperatureKind(url) {
@@ -748,7 +773,7 @@ async function handleDeviceStatus(deviceId, response) {
 }
 
 async function refreshDeviceCache(device) {
-  const result = await refreshStatus(deviceToConfig(device));
+  const result = await retryDeviceOperation(() => refreshStatus(deviceToConfig(device)));
   const operatorId = preferredOperatorId(result.debug, result.config.operatorId);
   const saved = db.saveDevice({
     id: device.id,
@@ -789,25 +814,31 @@ async function refreshVisibleDeviceCache() {
 
 async function applyDeviceStatus(device, nextStatus, options = {}) {
   const config = deviceToConfig(device);
-  let result = await applyStatus(config, nextStatus, {
-    forceOff: Boolean(options.forceOff),
-  });
-  let operatorId = preferredOperatorId(result.debug, result.config.operatorId);
-  if (writeResultCode(result) !== 0 && operatorId && operatorId.toLowerCase() !== String(config.operatorId || "").toLowerCase()) {
-    result = await applyStatus({
-      ...config,
-      operatorId,
-    }, nextStatus, {
+  const result = await retryDeviceOperation(async () => {
+    let currentResult = await applyStatus(config, nextStatus, {
       forceOff: Boolean(options.forceOff),
     });
-    operatorId = preferredOperatorId(result.debug, result.config.operatorId);
-  }
-  assertWriteAccepted(result);
+    let operatorId = preferredOperatorId(currentResult.debug, currentResult.config.operatorId);
+    if (writeResultCode(currentResult) !== 0 && operatorId && operatorId.toLowerCase() !== String(config.operatorId || "").toLowerCase()) {
+      currentResult = await applyStatus({
+        ...config,
+        operatorId,
+      }, nextStatus, {
+        forceOff: Boolean(options.forceOff),
+      });
+      operatorId = preferredOperatorId(currentResult.debug, currentResult.config.operatorId);
+    }
+    assertWriteAccepted(currentResult);
+    return {
+      ...currentResult,
+      operatorId,
+    };
+  });
   const saved = db.saveDevice({
     id: device.id,
     config: {
       ...result.config,
-      operatorId,
+      operatorId: result.operatorId,
       deviceId: device.name,
     },
     status: result.status,
@@ -1005,7 +1036,7 @@ async function handleDeviceRegister(deviceId, response) {
     return;
   }
 
-  const result = await registerRemote(deviceToConfig(device));
+  const result = await retryDeviceOperation(() => registerRemote(deviceToConfig(device)));
   const saved = db.saveDevice({
     id: device.id,
     config: {
@@ -1175,14 +1206,14 @@ async function handleApi(request, response, pathname, url) {
   if (request.method === "POST" && pathname === "/api/devices") {
     const payload = await parseJsonBody(request);
     const desiredName = String(payload.name || payload.deviceId || "").trim();
-    const probe = await loadDeviceInfo({
+    const probe = await retryDeviceOperation(() => loadDeviceInfo({
       deviceId: desiredName || `WF-RAC ${payload.ipAddress}`,
       ipAddress: payload.ipAddress,
       port: payload.port,
       protocol: payload.protocol,
       operatorId: payload.operatorId || makeOperatorId(),
       airconId: payload.airconId,
-    });
+    }));
     const saved = db.saveDevice({
       config: {
         ...probe.config,

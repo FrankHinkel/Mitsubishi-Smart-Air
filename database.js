@@ -121,6 +121,7 @@ function selectDeviceColumns() {
     ip_address AS ipAddress,
     port,
     protocol,
+    poll_interval_ms AS pollIntervalMs,
     operator_id AS operatorId,
     aircon_id AS airconId,
     mac_address AS macAddress,
@@ -167,6 +168,7 @@ function rowToDevice(row) {
     ipAddress: row.ipAddress,
     port: row.port,
     protocol: row.protocol,
+    pollIntervalMs: Number(row.pollIntervalMs) || 60000,
     operatorId: row.operatorId,
     airconId: row.airconId,
     macAddress: row.macAddress,
@@ -211,6 +213,7 @@ function ensureColumn(tableName, columnName, definition) {
 }
 
 function ensureDeviceTimerColumns() {
+  ensureColumn("devices", "poll_interval_ms", "INTEGER NOT NULL DEFAULT 60000");
   ensureColumn("devices", "boost_until", "TEXT");
   ensureColumn("devices", "boost_next_attempt_at", "TEXT");
   ensureColumn("devices", "boost_retry_count", "INTEGER NOT NULL DEFAULT 0");
@@ -255,6 +258,7 @@ function initDatabase() {
       ip_address TEXT NOT NULL,
       port INTEGER NOT NULL DEFAULT 51443,
       protocol TEXT NOT NULL DEFAULT 'auto',
+      poll_interval_ms INTEGER NOT NULL DEFAULT 60000,
       operator_id TEXT NOT NULL DEFAULT '',
       aircon_id TEXT NOT NULL DEFAULT '',
       mac_address TEXT NOT NULL DEFAULT '',
@@ -459,6 +463,14 @@ function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
+function normalizePollIntervalMs(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 60000;
+  }
+  return Math.max(5000, Math.min(3600000, parsed));
+}
+
 function saveDevice(input) {
   const config = input.config || input;
   const info = input.info || {};
@@ -487,6 +499,11 @@ function saveDevice(input) {
     ipAddress,
     port: normalizePort(config.port || input.port || (existing && existing.port)),
     protocol: normalizeProtocol(config.protocol || input.protocol || (existing && existing.protocol)),
+    pollIntervalMs: normalizePollIntervalMs(
+      hasOwn(input, "pollIntervalMs")
+        ? input.pollIntervalMs
+        : (existing && existing.pollIntervalMs)
+    ),
     operatorId,
     airconId: normalizeAirconId(config.airconId || input.airconId || info.airconId || debugContents.airconId || (existing && existing.airconId)),
     macAddress: normalizeMac(input.macAddress || info.macAddress || debugContents.macAddress || (existing && existing.macAddress)),
@@ -504,6 +521,7 @@ function saveDevice(input) {
         ip_address = ${sqlText(values.ipAddress)},
         port = ${values.port},
         protocol = ${sqlText(values.protocol)},
+        poll_interval_ms = ${values.pollIntervalMs},
         operator_id = ${sqlText(values.operatorId)},
         aircon_id = ${sqlText(values.airconId)},
         mac_address = ${sqlText(values.macAddress)},
@@ -522,12 +540,13 @@ function saveDevice(input) {
   runSql(`
     INSERT INTO devices (
       name, ip_address, port, protocol, operator_id, aircon_id, mac_address, firm_type,
-      sort_order, hidden, status_json, raw_info_json, created_at, updated_at, last_seen_at
+      poll_interval_ms, sort_order, hidden, status_json, raw_info_json, created_at, updated_at, last_seen_at
     ) VALUES (
       ${sqlText(values.name)},
       ${sqlText(values.ipAddress)},
       ${values.port},
       ${sqlText(values.protocol)},
+      ${values.pollIntervalMs},
       ${sqlText(values.operatorId)},
       ${sqlText(values.airconId)},
       ${sqlText(values.macAddress)},
@@ -547,6 +566,7 @@ function saveDevice(input) {
 
 function updateDeviceList(items) {
   const timestamp = nowIso();
+  const existingDevices = new Map(listDevices({ includeHidden: true }).map((device) => [device.id, device]));
   const statements = ["BEGIN;"];
   items.forEach((item, index) => {
     const id = Number.parseInt(item.id, 10);
@@ -554,14 +574,21 @@ function updateDeviceList(items) {
       return;
     }
 
+    const existing = existingDevices.get(id);
     const name = cleanText(item.name);
     const hidden = item.hidden ? 1 : 0;
     const sortOrder = Number.isInteger(item.sortOrder) ? item.sortOrder : (index + 1) * 10;
+    const pollIntervalMs = normalizePollIntervalMs(
+      hasOwn(item, "pollIntervalMs")
+        ? item.pollIntervalMs
+        : (existing && existing.pollIntervalMs)
+    );
     statements.push(`
       UPDATE devices SET
         name = CASE WHEN length(trim(${sqlText(name)})) > 0 THEN ${sqlText(name)} ELSE name END,
         hidden = ${hidden},
         sort_order = ${sortOrder},
+        poll_interval_ms = ${pollIntervalMs},
         updated_at = ${sqlText(timestamp)}
       WHERE id = ${id};
     `);

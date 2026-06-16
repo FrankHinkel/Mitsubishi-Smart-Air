@@ -33,7 +33,10 @@ const TEMP_MIN = 18;
 const TEMP_MAX = 30;
 const TEMP_STEP = 0.5;
 const DEVICE_WRITE_DELAY_MS = 1400;
-const STATUS_POLL_INTERVAL_MS = 60000;
+const DEVICE_PRESS_FEEDBACK_MS = 300;
+const DEFAULT_DEVICE_POLL_INTERVAL_MS = 60000;
+const FAST_DEVICE_POLL_INTERVAL_MS = 5000;
+const ACTIVE_DEVICE_POLL_WINDOW_MS = 60000;
 const DEFAULT_APP_TITLE = "Smart Air";
 const UI_SCALE_KEY = "smart-air-ui-scale";
 const UI_SCALE_MIN = 0.5;
@@ -183,6 +186,7 @@ let appSettings = {
 };
 const deviceErrors = new Map();
 const pendingDeviceWrites = new Map();
+const devicePollState = new Map();
 let statusPollTimer = null;
 let countdownTimer = null;
 let lastPointerScroll = {
@@ -256,6 +260,109 @@ function normalizeUiScale(value) {
   }
   const stepped = Math.round(parsed / UI_SCALE_STEP) * UI_SCALE_STEP;
   return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, Number(stepped.toFixed(1))));
+}
+
+function normalizePollIntervalMs(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return DEFAULT_DEVICE_POLL_INTERVAL_MS;
+  }
+  return Math.max(FAST_DEVICE_POLL_INTERVAL_MS, Math.min(3600000, parsed));
+}
+
+function normalizePollIntervalSeconds(value) {
+  return Math.round(normalizePollIntervalMs(value) / 1000);
+}
+
+function devicePollKey(deviceId) {
+  return Number.parseInt(deviceId, 10) || 0;
+}
+
+function getDevicePollState(deviceId) {
+  const key = devicePollKey(deviceId);
+  let state = devicePollState.get(key);
+  if (!state) {
+    state = {
+      activeUntil: 0,
+      inFlight: false,
+      nextAt: 0,
+      timer: null,
+    };
+    devicePollState.set(key, state);
+  }
+  return state;
+}
+
+function removeDevicePollState(deviceId) {
+  const key = devicePollKey(deviceId);
+  const state = devicePollState.get(key);
+  if (state && state.timer) {
+    clearTimeout(state.timer);
+  }
+  devicePollState.delete(key);
+}
+
+function effectiveDevicePollInterval(device) {
+  const configured = normalizePollIntervalMs(device && device.pollIntervalMs);
+  const state = getDevicePollState(device && device.id);
+  if (state.activeUntil > Date.now()) {
+    return FAST_DEVICE_POLL_INTERVAL_MS;
+  }
+  return configured;
+}
+
+function markDeviceInteraction(deviceId, options = {}) {
+  const state = getDevicePollState(deviceId);
+  const activeMs = Number.isFinite(options.activeMs) ? options.activeMs : ACTIVE_DEVICE_POLL_WINDOW_MS;
+  const now = Date.now();
+  state.activeUntil = Math.max(state.activeUntil || 0, now + Math.max(0, activeMs));
+  if (options.nextAt !== undefined) {
+    state.nextAt = Math.max(now, Number.parseInt(options.nextAt, 10) || now);
+  }
+}
+
+function scheduleDevicePoll(device, delayMs = null, options = {}) {
+  if (!device || !device.id) {
+    return;
+  }
+
+  const state = getDevicePollState(device.id);
+  if (state.inFlight && delayMs === null && !options.force) {
+    return;
+  }
+  if (state.timer && delayMs === null && !options.force) {
+    return;
+  }
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+
+  const stateHasSchedule = state.nextAt > Date.now();
+  const nextDelay = Number.isFinite(delayMs)
+    ? Math.max(0, delayMs)
+    : (stateHasSchedule ? Math.max(0, state.nextAt - Date.now()) : effectiveDevicePollInterval(device));
+  state.nextAt = Date.now() + nextDelay;
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    if (state.inFlight) {
+      scheduleDevicePoll(device, FAST_DEVICE_POLL_INTERVAL_MS, { force: true });
+      return;
+    }
+    refreshDevice(device.id, { fromPoll: true }).catch(() => {});
+  }, nextDelay);
+}
+
+function syncDevicePolling() {
+  const visibleIds = new Set(devices.map((device) => device.id));
+  for (const device of devices) {
+    scheduleDevicePoll(device);
+  }
+  for (const deviceId of [...devicePollState.keys()]) {
+    if (!visibleIds.has(deviceId)) {
+      removeDevicePollState(deviceId);
+    }
+  }
 }
 
 function readStoredUiScale() {
@@ -671,13 +778,30 @@ function restoreScroll(snapshot) {
   setTimeout(() => window.scrollTo(snapshot.x, snapshot.y), 80);
 }
 
+function flashButtonFeedback(element) {
+  if (!element) {
+    return;
+  }
+  element.classList.add("is-pressed");
+  if (element.pressFeedbackTimer) {
+    clearTimeout(element.pressFeedbackTimer);
+  }
+  element.pressFeedbackTimer = setTimeout(() => {
+    element.classList.remove("is-pressed");
+    element.pressFeedbackTimer = null;
+  }, DEVICE_PRESS_FEEDBACK_MS);
+}
+
 function guardedControlClick(element, handler) {
   return (event) => {
     event.preventDefault();
     const scroll = scrollSnapshot(element);
     element.blur();
-    handler(event, scroll);
-    restoreScroll(scroll);
+    flashButtonFeedback(element);
+    setTimeout(() => {
+      handler(event, scroll);
+      restoreScroll(scroll);
+    }, DEVICE_PRESS_FEEDBACK_MS);
   };
 }
 
@@ -980,6 +1104,7 @@ function renderDevices() {
   els.deviceList.replaceChildren(...devices.map(renderDeviceCard));
   renderOutdoorSummary();
   updateCountdownDisplays();
+  syncDevicePolling();
   restoreScroll(scroll);
 }
 
@@ -992,8 +1117,10 @@ function renderEditRow(item, index) {
   down.type = "button";
   up.disabled = index === 0;
   down.disabled = index === editItems.length - 1;
-  up.addEventListener("click", () => moveEditItem(index, -1));
-  down.addEventListener("click", () => moveEditItem(index, 1));
+  preventPointerFocusScroll(up);
+  preventPointerFocusScroll(down);
+  up.addEventListener("click", guardedControlClick(up, () => moveEditItem(index, -1)));
+  down.addEventListener("click", guardedControlClick(down, () => moveEditItem(index, 1)));
   order.append(up, down);
 
   const nameLabel = createElement("label", { className: "edit-name" });
@@ -1004,6 +1131,19 @@ function renderEditRow(item, index) {
     item.name = nameInput.value;
   });
   nameLabel.append(nameInput);
+
+  const pollLabel = createElement("label", { className: "edit-poll" });
+  pollLabel.append(createElement("span", { text: "Poll interval (s)" }));
+  const pollInput = document.createElement("input");
+  pollInput.type = "number";
+  pollInput.min = "5";
+  pollInput.step = "1";
+  pollInput.inputMode = "numeric";
+  pollInput.value = String(normalizePollIntervalSeconds(item.pollIntervalMs || DEFAULT_DEVICE_POLL_INTERVAL_MS));
+  pollInput.addEventListener("input", () => {
+    item.pollIntervalMs = normalizePollIntervalMs(Number.parseFloat(pollInput.value) * 1000);
+  });
+  pollLabel.append(pollInput);
 
   const meta = createElement("p", {
     className: "edit-meta",
@@ -1025,7 +1165,7 @@ function renderEditRow(item, index) {
   hideLabel.append(hiddenInput, createElement("span", { text: "Hidden" }));
 
   const details = createElement("div", { className: "edit-details" });
-  details.append(nameLabel, meta);
+  details.append(nameLabel, pollLabel, meta);
   row.append(order, details, hideLabel);
   return row;
 }
@@ -1140,6 +1280,8 @@ async function addManualDevice(event) {
 }
 
 async function refreshDevice(deviceId, options = {}) {
+  const state = getDevicePollState(deviceId);
+  state.inFlight = true;
   try {
     const data = await apiFetch(`/api/devices/${deviceId}/status`, {
       method: "POST",
@@ -1155,6 +1297,13 @@ async function refreshDevice(deviceId, options = {}) {
     }
     throw error;
   } finally {
+    state.inFlight = false;
+    const currentDevice = devices.find((device) => device.id === deviceId);
+    if (currentDevice) {
+      scheduleDevicePoll(currentDevice, null, { force: true });
+    } else {
+      removeDevicePollState(deviceId);
+    }
     renderDevices();
   }
 }
@@ -1184,16 +1333,21 @@ async function refreshAllDevices(options = {}) {
 
 function stopStatusPolling() {
   if (statusPollTimer) {
-    clearInterval(statusPollTimer);
+    clearTimeout(statusPollTimer);
     statusPollTimer = null;
+  }
+  for (const state of devicePollState.values()) {
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.inFlight = false;
   }
 }
 
 function startStatusPolling() {
   stopStatusPolling();
-  statusPollTimer = setInterval(() => {
-    refreshAllDevices().catch(() => {});
-  }, STATUS_POLL_INTERVAL_MS);
+  syncDevicePolling();
 }
 
 function hasQueuedPatch(entry) {
@@ -1295,6 +1449,11 @@ async function sendQueuedDevicePatch(deviceId) {
       applyServerDevice(data.device, hasQueuedPatch(entry));
     }
     setMessage("");
+    markDeviceInteraction(deviceId);
+    const refreshedDevice = devices.find((device) => device.id === deviceId);
+    if (refreshedDevice) {
+      scheduleDevicePoll(refreshedDevice, 0, { force: true });
+    }
   } catch (error) {
     const message = friendlyError(error);
     deviceErrors.set(deviceId, message);
@@ -1357,6 +1516,11 @@ async function setSleepTimer(deviceId, hours) {
     }
     deviceErrors.delete(deviceId);
     setMessage("");
+    markDeviceInteraction(deviceId);
+    const refreshedDevice = devices.find((device) => device.id === deviceId);
+    if (refreshedDevice) {
+      scheduleDevicePoll(refreshedDevice, 0, { force: true });
+    }
   } catch (error) {
     replaceDevice(current);
     const message = friendlyError(error);
@@ -1403,6 +1567,11 @@ async function setBoostTimer(deviceId, minutes) {
     }
     deviceErrors.delete(deviceId);
     setMessage("");
+    markDeviceInteraction(deviceId);
+    const refreshedDevice = devices.find((device) => device.id === deviceId);
+    if (refreshedDevice) {
+      scheduleDevicePoll(refreshedDevice, 0, { force: true });
+    }
   } catch (error) {
     replaceDevice(current);
     const message = friendlyError(error);
@@ -1485,6 +1654,7 @@ async function saveEditList() {
       id: item.id,
       name: item.name,
       hidden: Boolean(item.hidden),
+      pollIntervalMs: normalizePollIntervalMs(item.pollIntervalMs),
       sortOrder: (index + 1) * 10,
     }));
     const data = await apiFetch("/api/devices/list", {
@@ -1539,6 +1709,7 @@ async function logout() {
   deviceErrors.clear();
   stopStatusPolling();
   stopCountdownClock();
+  devicePollState.clear();
   for (const entry of pendingDeviceWrites.values()) {
     if (entry.timer) {
       clearTimeout(entry.timer);
@@ -1576,7 +1747,7 @@ function bindEvents() {
   setButtonIcon(els.zoomInButton, "zoom-in", "Zoom in");
   setButtonIcon(els.logoutButton, "log-out", "Logout");
   els.loginForm.addEventListener("submit", login);
-  els.logoutButton.addEventListener("click", logout);
+  els.logoutButton.addEventListener("click", guardedControlClick(els.logoutButton, logout));
   if (els.zoomMenuButton && els.zoomMenu) {
     preventPointerFocusScroll(els.zoomMenuButton);
     els.zoomMenuButton.addEventListener("click", guardedControlClick(els.zoomMenuButton, (event, scroll) => {
@@ -1598,27 +1769,27 @@ function bindEvents() {
       changeUiScale(UI_SCALE_STEP);
     }));
   }
-  els.refreshAllButton.addEventListener("click", () => {
+  els.refreshAllButton.addEventListener("click", guardedControlClick(els.refreshAllButton, () => {
     refreshAllDevices({ showErrors: true }).catch((error) => setMessage(friendlyError(error), "error"));
-  });
-  els.emptyScanButton.addEventListener("click", () => {
+  }));
+  els.emptyScanButton.addEventListener("click", guardedControlClick(els.emptyScanButton, () => {
     scanDevices({ wideScan: true }).catch((error) => setMessage(friendlyError(error), "error"));
-  });
+  }));
   if (els.emptyManualButton) {
-    els.emptyManualButton.addEventListener("click", () => {
+    els.emptyManualButton.addEventListener("click", guardedControlClick(els.emptyManualButton, () => {
       openEditList().catch((error) => setMessage(friendlyError(error), "error"));
-    });
+    }));
   }
-  els.editListButton.addEventListener("click", () => {
+  els.editListButton.addEventListener("click", guardedControlClick(els.editListButton, () => {
     openEditList().catch((error) => setMessage(friendlyError(error), "error"));
-  });
-  els.closeEditButton.addEventListener("click", closeEditList);
-  els.saveListButton.addEventListener("click", () => {
+  }));
+  els.closeEditButton.addEventListener("click", guardedControlClick(els.closeEditButton, closeEditList));
+  els.saveListButton.addEventListener("click", guardedControlClick(els.saveListButton, () => {
     saveEditList().catch((error) => setMessage(friendlyError(error), "error"));
-  });
-  els.rescanEditButton.addEventListener("click", () => {
+  }));
+  els.rescanEditButton.addEventListener("click", guardedControlClick(els.rescanEditButton, () => {
     scanDevices({ wideScan: true }).catch((error) => setMessage(friendlyError(error), "error"));
-  });
+  }));
   if (els.manualAddForm) {
     els.manualAddForm.addEventListener("submit", addManualDevice);
   }

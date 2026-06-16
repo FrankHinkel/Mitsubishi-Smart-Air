@@ -101,7 +101,9 @@ SLEEP_TIMER_MAX_RETRIES=3
 
 `DEFAULT_ADMIN_USERNAME` and `DEFAULT_ADMIN_PASSWORD` are only used when the database has no users yet.
 
-The server refreshes visible device status in the background every `STATUS_POLL_INTERVAL_MS` milliseconds. The UI renders cached SQLite values immediately and updates silently when fresh values arrive.
+The server refreshes visible device status in the background and the UI keeps a per-device poll interval in the edit list. When a device is actively used, the UI temporarily polls it every 5 seconds so the status feels live on handheld devices.
+
+Read and write errors are retried several times before the app reports a failure, which keeps short network hiccups from surfacing as immediate misses.
 
 Sleep timers are stored in SQLite. When a timer expires, the server sends an off command. If that command fails, it retries up to `SLEEP_TIMER_MAX_RETRIES` times with `SLEEP_TIMER_RETRY_DELAY_MS` milliseconds between attempts.
 

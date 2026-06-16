@@ -56,6 +56,17 @@ button {
   color: var(--ink);
   background: #e8ede8;
   cursor: pointer;
+  transition:
+    transform 120ms ease,
+    filter 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+button:active,
+button.is-pressed {
+  transform: translateY(1px) scale(0.98);
+  filter: brightness(0.97);
 }
 
 button:disabled,
@@ -604,7 +615,7 @@ label span,
   z-index: 10;
   display: grid;
   width: max-content;
-  min-width: 132px;
+  min-width: 156px;
   margin-top: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -614,9 +625,9 @@ label span,
 }
 
 .popup-menu button {
-  min-height: 34px;
+  min-height: calc(51px * var(--ui-control-scale));
   border-radius: 6px;
-  padding: 1px;
+  padding: 8px 12px;
   text-align: left;
   background: transparent;
 }
@@ -638,8 +649,8 @@ label span,
 }
 
 .timer-options {
-  grid-template-columns: repeat(2, minmax(48px, 1fr));
-  min-width: 120px;
+  grid-template-columns: repeat(2, minmax(60px, 1fr));
+  min-width: 156px;
 }
 
 .device-error {
@@ -758,6 +769,16 @@ label span,
   gap: 6px;
 }
 
+.edit-poll {
+  display: grid;
+  gap: 6px;
+  max-width: 150px;
+}
+
+.edit-poll input {
+  text-align: center;
+}
+
 .check-row {
   grid-column: 1 / -1;
   display: flex;
@@ -835,6 +856,10 @@ label span,
   .edit-row {
     grid-template-columns: auto minmax(0, 1fr) 110px;
     align-items: center;
+  }
+
+  .edit-poll {
+    max-width: 180px;
   }
 
   .check-row {
