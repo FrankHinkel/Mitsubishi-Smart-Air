@@ -860,11 +860,10 @@ async function handleDeviceApply(deviceId, request, response) {
 
   const payload = await parseJsonBody(request);
   const requestedStatus = payload.status && typeof payload.status === "object" ? payload.status : {};
-  const restoreStatus = device.boostTimer
-    && payload.cancelBoost !== false
+  const shouldRestoreBoost = Boolean(device.boostTimer)
     && requestedStatus.operation === false
-    ? boostRestoreStatus(device)
-    : null;
+    && payload.cancelBoost !== false;
+  const restoreStatus = shouldRestoreBoost ? boostRestoreStatus(device) : null;
   const nextStatus = {
     ...defaultStatus(),
     ...(restoreStatus || device.status || {}),
@@ -873,9 +872,13 @@ async function handleDeviceApply(deviceId, request, response) {
   const { saved, debug } = await applyDeviceStatus(device, nextStatus, {
     forceOff: Boolean(payload.forceOff),
   });
-  const finalDevice = device.boostTimer && payload.cancelBoost !== false
-    ? db.setDeviceBoostTimer(saved.id, null)
-    : saved;
+  let finalDevice = saved;
+  if (shouldRestoreBoost || payload.cancelBoost === true) {
+    finalDevice = db.setDeviceBoostTimer(saved.id, null);
+  }
+  if (requestedStatus.operation === false) {
+    finalDevice = db.setDeviceSleepTimer(finalDevice.id, null);
+  }
   sendJson(response, 200, {
     device: safeDevice(finalDevice),
     debug,

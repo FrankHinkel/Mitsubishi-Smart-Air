@@ -54,6 +54,9 @@ const DEVICE_PRESS_FEEDBACK_MS = 300;
 const DEFAULT_DEVICE_POLL_INTERVAL_MS = 60000;
 const FAST_DEVICE_POLL_INTERVAL_MS = 5000;
 const ACTIVE_DEVICE_POLL_WINDOW_MS = 60000;
+const PULL_TO_REFRESH_THRESHOLD_PX = 84;
+const PULL_TO_REFRESH_MAX_PX = 140;
+const PULL_TO_REFRESH_RESISTANCE = 0.55;
 const DEFAULT_APP_TITLE = "Smart Air";
 const UI_SCALE_KEY = "smart-air-ui-scale";
 const UI_SCALE_MIN = 0.5;
@@ -213,6 +216,8 @@ const els = {
   manualProtocol: document.querySelector("#manualProtocol"),
   outdoorSummary: document.querySelector("#outdoorSummary"),
   refreshAllButton: document.querySelector("#refreshAllButton"),
+  pullToRefresh: document.querySelector("#pullToRefresh"),
+  pullToRefreshLabel: document.querySelector("#pullToRefreshLabel"),
   rescanEditButton: document.querySelector("#rescanEditButton"),
   saveListButton: document.querySelector("#saveListButton"),
   zoomInButton: document.querySelector("#zoomInButton"),
@@ -246,6 +251,14 @@ let stableScroll = {
   y: 0,
 };
 let stableScrollTimer = null;
+let pullToRefreshState = {
+  active: false,
+  refreshing: false,
+  armed: false,
+  distance: 0,
+  startX: 0,
+  startY: 0,
+};
 let uiScale = 1;
 
 function createElement(tag, options = {}) {
@@ -498,6 +511,69 @@ document.addEventListener("click", (event) => {
   }
 });
 
+document.addEventListener("touchstart", (event) => {
+  if (!canStartPullToRefresh(event)) {
+    return;
+  }
+
+  const touch = event.touches[0];
+  pullToRefreshState = {
+    active: true,
+    refreshing: false,
+    armed: true,
+    distance: 0,
+    startX: touch.clientX,
+    startY: touch.clientY,
+  };
+  setPullToRefreshVisual(pullToRefreshState);
+}, { passive: true });
+
+document.addEventListener("touchmove", (event) => {
+  if (!pullToRefreshState.armed || pullToRefreshState.refreshing) {
+    return;
+  }
+
+  const touch = event.touches[0];
+  const deltaX = Math.abs(touch.clientX - pullToRefreshState.startX);
+  const deltaY = touch.clientY - pullToRefreshState.startY;
+
+  if (deltaY <= 0 || deltaX > deltaY * 1.1) {
+    resetPullToRefreshVisual();
+    return;
+  }
+
+  if (window.scrollY > 0) {
+    resetPullToRefreshVisual();
+    return;
+  }
+
+  event.preventDefault();
+  pullToRefreshState.distance = Math.min(
+    PULL_TO_REFRESH_MAX_PX,
+    Math.max(0, deltaY * PULL_TO_REFRESH_RESISTANCE)
+  );
+  pullToRefreshState.active = true;
+  setPullToRefreshVisual(pullToRefreshState);
+}, { passive: false });
+
+document.addEventListener("touchend", () => {
+  if (!pullToRefreshState.armed) {
+    return;
+  }
+
+  if (pullToRefreshState.distance >= PULL_TO_REFRESH_THRESHOLD_PX) {
+    completePullToRefresh().catch(() => {});
+    return;
+  }
+  resetPullToRefreshVisual();
+});
+
+document.addEventListener("touchcancel", () => {
+  if (pullToRefreshState.armed && !pullToRefreshState.refreshing) {
+    resetPullToRefreshVisual();
+  }
+});
+
 async function apiFetch(path, options = {}) {
   const init = {
     credentials: "same-origin",
@@ -574,12 +650,14 @@ function setLoginError(message = "") {
 function showLogin() {
   els.loginView.hidden = false;
   els.appView.hidden = true;
+  resetPullToRefreshVisual();
   setMessage("");
 }
 
 function showApp() {
   els.loginView.hidden = true;
   els.appView.hidden = false;
+  resetPullToRefreshVisual();
 }
 
 function defaultStatus() {
@@ -836,6 +914,78 @@ function restoreScroll(snapshot) {
   setTimeout(() => window.scrollTo(snapshot.x, snapshot.y), 80);
 }
 
+function setPullToRefreshVisual(state = {}) {
+  if (!els.appView || !els.pullToRefresh) {
+    return;
+  }
+
+  const active = Boolean(state.active);
+  const refreshing = Boolean(state.refreshing);
+  const distance = Math.max(0, Number(state.distance || 0));
+  const ready = active && distance >= PULL_TO_REFRESH_THRESHOLD_PX;
+
+  els.appView.classList.toggle("is-pull-active", active);
+  els.appView.classList.toggle("is-pull-ready", ready);
+  els.appView.classList.toggle("is-pull-refreshing", refreshing);
+  els.pullToRefresh.hidden = !(active || refreshing);
+  els.pullToRefresh.style.setProperty("--pull-distance", `${Math.min(distance, PULL_TO_REFRESH_MAX_PX)}px`);
+
+  if (els.pullToRefreshLabel) {
+    els.pullToRefreshLabel.textContent = refreshing
+      ? "Refreshing..."
+      : ready
+        ? "Release to refresh"
+        : "Pull to refresh";
+  }
+}
+
+function resetPullToRefreshVisual() {
+  pullToRefreshState = {
+    active: false,
+    refreshing: false,
+    armed: false,
+    distance: 0,
+    startX: 0,
+    startY: 0,
+  };
+  setPullToRefreshVisual(pullToRefreshState);
+}
+
+function canStartPullToRefresh(event) {
+  if (!els.appView || els.appView.hidden || editOpen || !document.documentElement.contains(event.target)) {
+    return false;
+  }
+  if (window.scrollY > 0) {
+    return false;
+  }
+  if (event.target.closest("button, input, select, textarea, label, .popup-menu")) {
+    return false;
+  }
+  return event.touches && event.touches.length > 0;
+}
+
+async function completePullToRefresh() {
+  if (pullToRefreshState.refreshing) {
+    return;
+  }
+
+  pullToRefreshState.refreshing = true;
+  setPullToRefreshVisual(pullToRefreshState);
+  updateButtons(true);
+
+  try {
+    await refreshAllDevices({
+      showErrors: true,
+      allowScan: !devices.length,
+    });
+  } catch (error) {
+    setMessage(friendlyError(error), "error");
+  } finally {
+    updateButtons(false);
+    resetPullToRefreshVisual();
+  }
+}
+
 function flashButtonFeedback(element) {
   if (!element) {
     return;
@@ -916,16 +1066,60 @@ function closeOpenMenus(except = null) {
   document.querySelectorAll(".popup-menu").forEach((menu) => {
     if (menu !== except) {
       menu.hidden = true;
+      menu.classList.remove("is-above");
     }
   });
 }
 
-function renderOptionVisual(option, extraClassName = "") {
+function updatePopupPlacement(menu, trigger) {
+  if (!menu || menu.hidden) {
+    return;
+  }
+
+  menu.style.setProperty("--popup-shift", "0px");
+  const menuRect = menu.getBoundingClientRect();
+  const triggerRect = trigger.getBoundingClientRect();
+  const margin = 12;
+  const spaceAbove = triggerRect.top - margin;
+  const spaceBelow = window.innerHeight - triggerRect.bottom - margin;
+  const shouldOpenAbove = menuRect.height > spaceBelow && spaceAbove > spaceBelow;
+
+  menu.classList.toggle("is-above", shouldOpenAbove);
+
+  if (trigger.closest('.symbol-menu[data-menu-label="horizontal"]')) {
+    const adjustedRect = menu.getBoundingClientRect();
+    let shift = 0;
+    if (adjustedRect.left < margin) {
+      shift += margin - adjustedRect.left;
+    }
+    if (adjustedRect.right > window.innerWidth - margin) {
+      shift -= adjustedRect.right - (window.innerWidth - margin);
+    }
+    menu.style.setProperty("--popup-shift", `${Math.round(shift)}px`);
+  }
+}
+
+function setPopupMenuVisible(menu, trigger, visible) {
+  if (!menu) {
+    return;
+  }
+  if (visible) {
+    menu.hidden = false;
+    requestAnimationFrame(() => updatePopupPlacement(menu, trigger));
+  } else {
+    menu.hidden = true;
+    menu.classList.remove("is-above");
+    menu.style.removeProperty("--popup-shift");
+  }
+}
+
+function renderOptionVisual(option, extraClassName = "", options = {}) {
   const visual = createElement("span", { className: ["symbol-visual", extraClassName].filter(Boolean).join(" ") });
   if (option.icon) {
     visual.append(createLucideIcon(option.icon, "symbol-visual-icon"));
   }
-  if (option.badge || option.symbol) {
+  const shouldShowBadge = !options.hideDuplicateBadge || (option.badge !== option.label);
+  if ((option.badge || option.symbol) && shouldShowBadge) {
     visual.append(createElement("span", {
       className: "symbol-visual-badge",
       text: option.badge || option.symbol,
@@ -951,7 +1145,7 @@ function renderSymbolMenu(label, value, options, onSelect) {
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
     const shouldOpen = menu.hidden;
     closeOpenMenus(menu);
-    menu.hidden = !shouldOpen;
+    setPopupMenuVisible(menu, trigger, shouldOpen);
     restoreScroll(scroll);
   }));
   for (const option of options) {
@@ -961,7 +1155,7 @@ function renderSymbolMenu(label, value, options, onSelect) {
     if (option.icon || option.badge || option.symbol) {
       const content = createElement("span", { className: "menu-option-content" });
       content.append(
-        renderOptionVisual(option, "menu-option-visual"),
+        renderOptionVisual(option, "menu-option-visual", { hideDuplicateBadge: true }),
         createElement("span", { className: "menu-option-label", text: option.label })
       );
       button.append(content);
@@ -975,6 +1169,67 @@ function renderSymbolMenu(label, value, options, onSelect) {
     }));
     menu.append(button);
   }
+  wrapper.append(trigger, menu);
+  return wrapper;
+}
+
+function renderHorizontalLouverMenu(device) {
+  const status = statusOf(device);
+  const selected = findOption(VANE_HORIZONTAL_OPTIONS, status.windDirectionLR);
+  const wrapper = createElement("div", { className: "symbol-menu horizontal-menu" });
+  wrapper.dataset.menuLabel = "horizontal";
+  const trigger = createElement("button", { className: `symbol-trigger${selected.icon || selected.badge || selected.symbol ? " has-icon" : ""}` });
+  trigger.type = "button";
+  trigger.setAttribute("aria-label", `Horizontal: ${selected.label}`);
+  if (selected.icon || selected.badge || selected.symbol) {
+    trigger.append(renderOptionVisual(selected, "trigger-visual"));
+  } else {
+    trigger.textContent = selected.label;
+  }
+  preventPointerFocusScroll(trigger);
+
+  const menu = createElement("div", { className: "popup-menu horizontal-options", hidden: true });
+  trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
+    const shouldOpen = menu.hidden;
+    closeOpenMenus(menu);
+    setPopupMenuVisible(menu, trigger, shouldOpen);
+    restoreScroll(scroll);
+  }));
+
+  const autoButton = createElement("button", {
+    className: Number(selected.value) === 0 ? "selected horizontal-auto-option" : "horizontal-auto-option",
+    text: "AUTO",
+  });
+  autoButton.type = "button";
+  autoButton.dataset.optionValue = "0";
+  autoButton.setAttribute("aria-label", "Horizontal: Auto");
+  preventPointerFocusScroll(autoButton);
+  autoButton.addEventListener("click", guardedControlClick(autoButton, () => {
+    menu.hidden = true;
+    menu.classList.remove("is-above");
+    queueDevicePatch(device.id, { windDirectionLR: 0 });
+  }));
+  menu.append(autoButton);
+
+  const arrowRow = createElement("div", { className: "horizontal-arrow-row" });
+  for (const option of VANE_HORIZONTAL_OPTIONS.slice(1)) {
+    const button = createElement("button", {
+      className: Number(option.value) === Number(selected.value) ? "selected horizontal-arrow-option" : "horizontal-arrow-option",
+    });
+    button.type = "button";
+    button.dataset.optionValue = String(option.value);
+    button.setAttribute("aria-label", `Horizontal: ${option.label}`);
+    button.append(renderOptionVisual(option, "menu-option-visual", { hideDuplicateBadge: true }));
+    preventPointerFocusScroll(button);
+    button.addEventListener("click", guardedControlClick(button, () => {
+      menu.hidden = true;
+      menu.classList.remove("is-above");
+      queueDevicePatch(device.id, { windDirectionLR: option.value });
+    }));
+    arrowRow.append(button);
+  }
+  menu.append(arrowRow);
+
   wrapper.append(trigger, menu);
   return wrapper;
 }
@@ -998,7 +1253,7 @@ function renderSleepMenu(device) {
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
     const shouldOpen = menu.hidden;
     closeOpenMenus(menu);
-    menu.hidden = !shouldOpen;
+    setPopupMenuVisible(menu, trigger, shouldOpen);
     restoreScroll(scroll);
   }));
   for (const option of SLEEP_OPTIONS) {
@@ -1037,14 +1292,14 @@ function renderBoostMenu(device) {
   const menu = createElement("div", { className: "popup-menu timer-options", hidden: true });
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
     if (boostActive) {
-      menu.hidden = true;
+      setPopupMenuVisible(menu, trigger, false);
       setBoostTimer(device.id, 0).catch(() => {});
       restoreScroll(scroll);
       return;
     }
     const shouldOpen = menu.hidden;
     closeOpenMenus(menu);
-    menu.hidden = !shouldOpen;
+    setPopupMenuVisible(menu, trigger, shouldOpen);
     restoreScroll(scroll);
   }));
   for (const option of BOOST_OPTIONS) {
@@ -1068,9 +1323,7 @@ function renderLouverControls(device) {
   const verticalMenu = renderSymbolMenu("Vertikal", status.windDirectionUD, VANE_VERTICAL_OPTIONS, (value) => {
     queueDevicePatch(device.id, { windDirectionUD: value });
   });
-  const horizontalMenu = renderSymbolMenu("Horizontal", status.windDirectionLR, VANE_HORIZONTAL_OPTIONS, (value) => {
-    queueDevicePatch(device.id, { windDirectionLR: value });
-  });
+  const horizontalMenu = renderHorizontalLouverMenu(device);
 
   wrapper.append(verticalMenu, horizontalMenu);
 
@@ -1633,7 +1886,7 @@ function queueDevicePatch(deviceId, statusPatch, options = {}) {
 
   const optimistic = {
     ...current,
-    boostTimer: current.boostTimer ? null : current.boostTimer,
+    boostTimer: current.boostTimer,
     status: {
       ...statusOf(current),
       ...statusPatch,
@@ -1993,7 +2246,7 @@ function bindEvents() {
     els.zoomMenuButton.addEventListener("click", guardedControlClick(els.zoomMenuButton, (event, scroll) => {
       const shouldOpen = els.zoomMenu.hidden;
       closeOpenMenus(els.zoomMenu);
-      els.zoomMenu.hidden = !shouldOpen;
+      setPopupMenuVisible(els.zoomMenu, els.zoomMenuButton, shouldOpen);
       restoreScroll(scroll);
     }));
   }
