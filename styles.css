@@ -486,6 +486,44 @@ label span,
   gap: 6px;
 }
 
+.louver-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 6px;
+}
+
+.louver-controls .symbol-trigger,
+.louver-3d-button {
+  min-height: 36px;
+}
+
+.louver-3d-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 1px;
+  color: #8a5b00;
+  background: rgba(168, 111, 0, 0.18);
+  font-size: 0.82rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.louver-3d-button.is-on {
+  color: #ffffff;
+  background: var(--amber);
+}
+
+.louver-summary {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
 .temp-control {
   display: grid;
   grid-template-columns: calc(34px * var(--ui-control-scale)) minmax(calc(46px * var(--ui-control-scale)), 1fr) calc(34px * var(--ui-control-scale));
@@ -870,6 +908,10 @@ label span,
 @media (min-width: 380px) {
   .compact-controls {
     grid-template-columns: minmax(0, 1fr) 42px 42px auto;
+  }
+
+  .louver-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   }
 
   .temp-control {

@@ -174,6 +174,7 @@ Error codes:
 ## Current features
 
 - Temporary Boost mode for Cool and Heat with automatic restore after the selected countdown
+- Separate vertical and horizontal louver controls plus a 3D preset that sets both axes together
 
 ## WF-RAC notes
 

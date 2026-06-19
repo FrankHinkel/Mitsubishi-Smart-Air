@@ -14,6 +14,23 @@ const FAN_OPTIONS = [
   { value: 3, label: "High", icon: "fan", badge: "3" },
   { value: 4, label: "Powerful", icon: "fan", badge: "4" },
 ];
+const VANE_VERTICAL_OPTIONS = [
+  { value: 0, label: "Auto" },
+  { value: 1, label: "Top" },
+  { value: 2, label: "Mid" },
+  { value: 3, label: "Normal" },
+  { value: 4, label: "Bottom" },
+];
+const VANE_HORIZONTAL_OPTIONS = [
+  { value: 0, label: "Auto" },
+  { value: 1, label: "1" },
+  { value: 2, label: "2" },
+  { value: 3, label: "3" },
+  { value: 4, label: "4" },
+  { value: 5, label: "5" },
+  { value: 6, label: "6" },
+  { value: 7, label: "7" },
+];
 const SLEEP_OPTIONS = [
   { hours: null, label: "--" },
   { hours: 1, label: "1h" },
@@ -713,6 +730,18 @@ function boostSummaryText(device) {
   return boostCountdownText(device);
 }
 
+function verticalSwingText(status) {
+  return findOption(VANE_VERTICAL_OPTIONS, Number(status.windDirectionUD)).label;
+}
+
+function horizontalSwingText(status) {
+  return findOption(VANE_HORIZONTAL_OPTIONS, Number(status.windDirectionLR)).label;
+}
+
+function is3DSwing(status) {
+  return Number(status.windDirectionUD) === 0 && Number(status.windDirectionLR) === 0;
+}
+
 function boostRestoreStatus(device) {
   return device && device.boostTimer && device.boostTimer.restoreStatus
     ? {
@@ -998,6 +1027,41 @@ function renderBoostMenu(device) {
   return wrapper;
 }
 
+function renderLouverControls(device) {
+  const status = statusOf(device);
+  const wrapper = createElement("div", { className: "louver-controls" });
+  const summary = createElement("p", {
+    className: "louver-summary",
+    text: `Vertical ${verticalSwingText(status)} · Horizontal ${horizontalSwingText(status)}`,
+  });
+
+  wrapper.append(
+    renderSymbolMenu("Vertikal", status.windDirectionUD, VANE_VERTICAL_OPTIONS, (value) => {
+      queueDevicePatch(device.id, { windDirectionUD: value });
+    }),
+    renderSymbolMenu("Horizontal", status.windDirectionLR, VANE_HORIZONTAL_OPTIONS, (value) => {
+      queueDevicePatch(device.id, { windDirectionLR: value });
+    })
+  );
+
+  const threeDButton = createElement("button", {
+    className: `louver-3d-button${is3DSwing(status) ? " is-on" : ""}`,
+    text: "3D",
+  });
+  threeDButton.type = "button";
+  threeDButton.setAttribute("aria-label", `3D swing for ${device.name}`);
+  preventPointerFocusScroll(threeDButton);
+  threeDButton.addEventListener("click", guardedControlClick(threeDButton, () => {
+    queueDevicePatch(device.id, {
+      windDirectionUD: 0,
+      windDirectionLR: 0,
+    });
+  }));
+  wrapper.append(threeDButton, summary);
+
+  return wrapper;
+}
+
 function renderDeviceCard(device) {
   const status = statusOf(device);
   const card = createElement("article", { className: "device-card" });
@@ -1082,7 +1146,7 @@ function renderDeviceCard(device) {
     renderSleepMenu(device)
   );
 
-  card.append(header, facts, controls);
+  card.append(header, facts, controls, renderLouverControls(device));
   const error = deviceErrors.get(device.id);
   if (error) {
     card.append(createElement("p", { className: "device-error", text: error }));
