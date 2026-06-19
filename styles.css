@@ -309,7 +309,7 @@ label span,
   gap: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
+  padding: 10px 10px 0;
   background: var(--panel);
   box-shadow: 0 6px 16px rgba(28, 38, 34, 0.05);
 }
@@ -366,6 +366,11 @@ label span,
 }
 
 .device-header-actions .boost-menu .symbol-trigger {
+  min-width: 72px;
+  padding: 1px;
+}
+
+.device-header-actions .sleep-menu .symbol-trigger {
   min-width: 72px;
   padding: 1px;
 }
@@ -479,18 +484,23 @@ label span,
   font-size: 0.86rem;
 }
 
-.compact-controls {
+.device-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: center;
   gap: 6px;
 }
 
-.louver-controls {
+.device-control-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: center;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
+}
+
+.device-control-row > * {
+  min-width: 0;
+}
+
+.louver-controls {
+  display: contents;
 }
 
 .louver-controls .symbol-trigger,
@@ -502,8 +512,10 @@ label span,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   border-radius: 8px;
-  padding: 1px;
+  padding: 2px 1px;
+  line-height: 1;
   color: #8a5b00;
   background: rgba(168, 111, 0, 0.18);
   font-size: 0.82rem;
@@ -516,19 +528,11 @@ label span,
   background: var(--amber);
 }
 
-.louver-summary {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.25;
-}
-
 .temp-control {
   display: grid;
-  grid-template-columns: calc(34px * var(--ui-control-scale)) minmax(calc(46px * var(--ui-control-scale)), 1fr) calc(34px * var(--ui-control-scale));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
   grid-column: 1 / -1;
-  align-items: center;
+  align-items: stretch;
   gap: 4px;
   min-width: 0;
 }
@@ -543,10 +547,15 @@ label span,
   font-weight: 900;
 }
 
+.temp-control .step-button {
+  width: 100%;
+  min-height: 36px;
+}
+
 .temp-control output {
   display: grid;
   min-width: 0;
-  min-height: calc(34px * var(--ui-control-scale));
+  min-height: 36px;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -906,12 +915,12 @@ label span,
 }
 
 @media (min-width: 380px) {
-  .compact-controls {
-    grid-template-columns: minmax(0, 1fr) 42px 42px auto;
+  .device-control-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
-  .louver-controls {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  .device-header-actions .sleep-menu .symbol-trigger {
+    min-width: 72px;
   }
 
   .temp-control {

@@ -23,13 +23,13 @@ const VANE_VERTICAL_OPTIONS = [
 ];
 const VANE_HORIZONTAL_OPTIONS = [
   { value: 0, label: "Auto" },
-  { value: 1, label: "1" },
-  { value: 2, label: "2" },
-  { value: 3, label: "3" },
-  { value: 4, label: "4" },
-  { value: 5, label: "5" },
-  { value: 6, label: "6" },
-  { value: 7, label: "7" },
+  { value: 1, label: "1", icon: "arrow-left-to-line", badge: "1" },
+  { value: 2, label: "2", icon: "arrow-left", badge: "2" },
+  { value: 3, label: "3", icon: "arrow-down-left", badge: "3" },
+  { value: 4, label: "4", icon: "arrow-down", badge: "4" },
+  { value: 5, label: "5", icon: "arrow-down-right", badge: "5" },
+  { value: 6, label: "6", icon: "arrow-right", badge: "6" },
+  { value: 7, label: "7", icon: "arrow-right-to-line", badge: "7" },
 ];
 const SLEEP_OPTIONS = [
   { hours: null, label: "--" },
@@ -86,6 +86,34 @@ const LUCIDE_ICON_NODES = {
     ["circle", { cx: "11", cy: "11", r: "8" }],
     ["line", { x1: "21", x2: "16.65", y1: "21", y2: "16.65" }],
     ["line", { x1: "8", x2: "14", y1: "11", y2: "11" }],
+  ],
+  "arrow-left-to-line": [
+    ["line", { x1: "19", x2: "5", y1: "12", y2: "12" }],
+    ["polyline", { points: "12 5 5 12 12 19" }],
+  ],
+  "arrow-left": [
+    ["line", { x1: "19", x2: "5", y1: "12", y2: "12" }],
+    ["polyline", { points: "12 5 5 12 12 19" }],
+  ],
+  "arrow-down-left": [
+    ["line", { x1: "19", x2: "7", y1: "5", y2: "17" }],
+    ["polyline", { points: "7 11 7 17 13 17" }],
+  ],
+  "arrow-down": [
+    ["line", { x1: "12", x2: "12", y1: "5", y2: "19" }],
+    ["polyline", { points: "5 12 12 19 19 12" }],
+  ],
+  "arrow-down-right": [
+    ["line", { x1: "5", x2: "17", y1: "5", y2: "17" }],
+    ["polyline", { points: "11 17 17 17 17 11" }],
+  ],
+  "arrow-right": [
+    ["line", { x1: "5", x2: "19", y1: "12", y2: "12" }],
+    ["polyline", { points: "12 5 19 12 12 19" }],
+  ],
+  "arrow-right-to-line": [
+    ["line", { x1: "5", x2: "19", y1: "12", y2: "12" }],
+    ["polyline", { points: "12 5 19 12 12 19" }],
   ],
   thermometer: [
     ["path", { d: "M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" }],
@@ -204,6 +232,7 @@ let appSettings = {
 const deviceErrors = new Map();
 const pendingDeviceWrites = new Map();
 const devicePollState = new Map();
+const deviceCardElements = new Map();
 let statusPollTimer = null;
 let countdownTimer = null;
 let lastPointerScroll = {
@@ -908,6 +937,7 @@ function renderOptionVisual(option, extraClassName = "") {
 function renderSymbolMenu(label, value, options, onSelect) {
   const selected = findOption(options, value);
   const wrapper = createElement("div", { className: "symbol-menu" });
+  wrapper.dataset.menuLabel = label.toLowerCase();
   const trigger = createElement("button", { className: `symbol-trigger${selected.icon || selected.badge || selected.symbol ? " has-icon" : ""}` });
   trigger.type = "button";
   trigger.setAttribute("aria-label", `${label}: ${selected.label}`);
@@ -927,6 +957,7 @@ function renderSymbolMenu(label, value, options, onSelect) {
   for (const option of options) {
     const button = createElement("button", { className: Number(option.value) === Number(value) ? "selected" : "" });
     button.type = "button";
+    button.dataset.optionValue = String(option.value);
     if (option.icon || option.badge || option.symbol) {
       const content = createElement("span", { className: "menu-option-content" });
       content.append(
@@ -950,6 +981,7 @@ function renderSymbolMenu(label, value, options, onSelect) {
 
 function renderSleepMenu(device) {
   const wrapper = createElement("div", { className: "symbol-menu sleep-menu" });
+  wrapper.dataset.menuLabel = "sleep";
   const trigger = createElement("button", { className: "symbol-trigger has-icon sleep-trigger" });
   trigger.type = "button";
   trigger.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
@@ -972,6 +1004,7 @@ function renderSleepMenu(device) {
   for (const option of SLEEP_OPTIONS) {
     const button = createElement("button", { text: option.label });
     button.type = "button";
+    button.dataset.optionValue = String(option.hours ?? "");
     preventPointerFocusScroll(button);
     button.addEventListener("click", guardedControlClick(button, () => {
       menu.hidden = true;
@@ -987,6 +1020,7 @@ function renderBoostMenu(device) {
   const status = statusOf(device);
   const boostActive = Boolean(device.boostTimer && device.boostTimer.until);
   const wrapper = createElement("div", { className: "symbol-menu boost-menu" });
+  wrapper.dataset.menuLabel = "boost";
   const trigger = createElement("button", { className: "symbol-trigger has-icon boost-trigger" });
   trigger.type = "button";
   trigger.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
@@ -1016,6 +1050,7 @@ function renderBoostMenu(device) {
   for (const option of BOOST_OPTIONS) {
     const button = createElement("button", { text: option.label });
     button.type = "button";
+    button.dataset.optionValue = String(option.minutes);
     preventPointerFocusScroll(button);
     button.addEventListener("click", guardedControlClick(button, () => {
       menu.hidden = true;
@@ -1030,19 +1065,14 @@ function renderBoostMenu(device) {
 function renderLouverControls(device) {
   const status = statusOf(device);
   const wrapper = createElement("div", { className: "louver-controls" });
-  const summary = createElement("p", {
-    className: "louver-summary",
-    text: `Vertical ${verticalSwingText(status)} · Horizontal ${horizontalSwingText(status)}`,
+  const verticalMenu = renderSymbolMenu("Vertikal", status.windDirectionUD, VANE_VERTICAL_OPTIONS, (value) => {
+    queueDevicePatch(device.id, { windDirectionUD: value });
+  });
+  const horizontalMenu = renderSymbolMenu("Horizontal", status.windDirectionLR, VANE_HORIZONTAL_OPTIONS, (value) => {
+    queueDevicePatch(device.id, { windDirectionLR: value });
   });
 
-  wrapper.append(
-    renderSymbolMenu("Vertikal", status.windDirectionUD, VANE_VERTICAL_OPTIONS, (value) => {
-      queueDevicePatch(device.id, { windDirectionUD: value });
-    }),
-    renderSymbolMenu("Horizontal", status.windDirectionLR, VANE_HORIZONTAL_OPTIONS, (value) => {
-      queueDevicePatch(device.id, { windDirectionLR: value });
-    })
-  );
+  wrapper.append(verticalMenu, horizontalMenu);
 
   const threeDButton = createElement("button", {
     className: `louver-3d-button${is3DSwing(status) ? " is-on" : ""}`,
@@ -1057,7 +1087,7 @@ function renderLouverControls(device) {
       windDirectionLR: 0,
     });
   }));
-  wrapper.append(threeDButton, summary);
+  wrapper.append(threeDButton);
 
   return wrapper;
 }
@@ -1105,7 +1135,7 @@ function renderDeviceCard(device) {
     queueDevicePatch(device.id, nextPatch, { forceOff: !nextOperation });
   }));
 
-  headerActions.append(renderBoostMenu(device), powerButton);
+  headerActions.append(renderBoostMenu(device), renderSleepMenu(device), powerButton);
   header.append(titleBlock, headerActions);
 
   const facts = createElement("div", { className: "device-facts" });
@@ -1116,7 +1146,7 @@ function renderDeviceCard(device) {
     facts.append(renderFact("Error", status.errorCode));
   }
 
-  const controls = createElement("div", { className: "compact-controls" });
+  const controls = createElement("div", { className: "device-controls" });
   const tempControl = createElement("div", { className: "temp-control" });
   const tempDown = createElement("button", { className: "step-button", text: "-" });
   tempDown.type = "button";
@@ -1135,29 +1165,159 @@ function renderDeviceCard(device) {
   }));
   tempControl.append(tempDown, tempValue, tempUp);
 
-  controls.append(
-    tempControl,
+  const controlRow = createElement("div", { className: "device-control-row" });
+  controlRow.append(
     renderSymbolMenu("Mode", status.operationMode, MODE_OPTIONS, (value) => {
       queueDevicePatch(device.id, { operationMode: value });
     }),
     renderSymbolMenu("Fan", status.airFlow, FAN_OPTIONS, (value) => {
       queueDevicePatch(device.id, { airFlow: value });
     }),
-    renderSleepMenu(device)
+    renderLouverControls(device)
   );
 
-  card.append(header, facts, controls, renderLouverControls(device));
-  const error = deviceErrors.get(device.id);
-  if (error) {
-    card.append(createElement("p", { className: "device-error", text: error }));
-  }
-  if (device.sleepTimer && device.sleepTimer.lastError && !device.sleepTimer.nextAttemptAt) {
-    card.append(createElement("p", { className: "device-error", text: `Sleep timer failed: ${device.sleepTimer.lastError}` }));
-  }
-  if (device.boostTimer && device.boostTimer.lastError && !device.boostTimer.nextAttemptAt) {
-    card.append(createElement("p", { className: "device-error", text: `Boost failed: ${device.boostTimer.lastError}` }));
-  }
+  controls.append(tempControl, controlRow);
+
+  const errorContainer = createElement("div", { className: "device-error-container" });
+  card.append(header, facts, controls, errorContainer);
   return card;
+}
+
+function updateMenuSelection(wrapper, value, options, label) {
+  if (!wrapper) {
+    return;
+  }
+  const selected = findOption(options, value);
+  const trigger = wrapper.querySelector(".symbol-trigger");
+  if (trigger) {
+    trigger.setAttribute("aria-label", `${label}: ${selected.label}`);
+    trigger.className = `symbol-trigger${selected.icon || selected.badge || selected.symbol ? " has-icon" : ""}`;
+    if (selected.icon || selected.badge || selected.symbol) {
+      trigger.replaceChildren(renderOptionVisual(selected, "trigger-visual"));
+    } else {
+      trigger.replaceChildren();
+      trigger.textContent = selected.symbol || selected.label;
+    }
+  }
+  wrapper.querySelectorAll(".popup-menu button").forEach((button) => {
+    const option = options.find((item) => String(item.value ?? item.minutes ?? item.hours ?? "") === button.dataset.optionValue);
+    if (!option) {
+      return;
+    }
+    button.classList.toggle("selected", Number(option.value) === Number(value));
+  });
+}
+
+function updateDeviceCard(card, device) {
+  const status = statusOf(device);
+  card.dataset.modeTone = modeTone(status);
+
+  const title = card.querySelector(".device-title h2");
+  if (title) {
+    title.textContent = device.name || `WF-RAC ${device.ipAddress}`;
+  }
+
+  const titleLine = card.querySelector(".device-title-line");
+  const inlineTemp = card.querySelector(".device-inline-temp");
+  if (Number.isFinite(status.indoorTemp)) {
+    if (inlineTemp) {
+      const value = inlineTemp.querySelector(".device-inline-temp-value");
+      if (value) {
+        value.textContent = formatTemp(status.indoorTemp);
+      }
+    } else if (titleLine) {
+      const nextInlineTemp = createElement("span", { className: "device-inline-temp" });
+      nextInlineTemp.append(
+        createLucideIcon("thermometer", "device-inline-temp-icon"),
+        createElement("span", {
+          className: "device-inline-temp-value",
+          text: formatTemp(status.indoorTemp),
+        })
+      );
+      titleLine.append(nextInlineTemp);
+    }
+  } else if (inlineTemp) {
+    inlineTemp.remove();
+  }
+
+  const powerButton = card.querySelector(".power-button");
+  if (powerButton) {
+    powerButton.classList.toggle("is-on", Boolean(status.operation));
+    powerButton.setAttribute("aria-label", `${status.operation ? "Turn off" : "Turn on"} ${device.name}`);
+  }
+
+  const sleepMenu = card.querySelector(".sleep-menu");
+  if (sleepMenu) {
+    const trigger = sleepMenu.querySelector(".sleep-trigger-label");
+    if (trigger) {
+      trigger.textContent = sleepSummaryText(device);
+      trigger.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
+    }
+  }
+
+  const boostMenu = card.querySelector(".boost-menu");
+  if (boostMenu) {
+    const trigger = boostMenu.querySelector(".boost-trigger-label");
+    if (trigger) {
+      trigger.textContent = boostSummaryText(device);
+      trigger.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
+    }
+  }
+
+  const tempValue = card.querySelector(".temp-control output");
+  if (tempValue) {
+    tempValue.textContent = formatTemp(normalizeTemp(status.presetTemp));
+  }
+
+  const modeMenu = card.querySelector('.device-control-row .symbol-menu[data-menu-label="mode"]');
+  if (modeMenu) {
+    updateMenuSelection(modeMenu, status.operationMode, MODE_OPTIONS, "Mode");
+  }
+  const fanMenu = card.querySelector('.device-control-row .symbol-menu[data-menu-label="fan"]');
+  if (fanMenu) {
+    updateMenuSelection(fanMenu, status.airFlow, FAN_OPTIONS, "Fan");
+  }
+
+  const louverMenus = card.querySelectorAll(".louver-controls .symbol-menu");
+  if (louverMenus[0]) {
+    updateMenuSelection(louverMenus[0], status.windDirectionUD, VANE_VERTICAL_OPTIONS, "Vertikal");
+  }
+  if (louverMenus[1]) {
+    updateMenuSelection(louverMenus[1], status.windDirectionLR, VANE_HORIZONTAL_OPTIONS, "Horizontal");
+  }
+  const threeDButton = card.querySelector(".louver-3d-button");
+  if (threeDButton) {
+    threeDButton.classList.toggle("is-on", is3DSwing(status));
+  }
+
+  const facts = card.querySelector(".device-facts");
+  if (facts) {
+    const parts = [];
+    if (Number.isFinite(status.electric) && status.electric > 0) {
+      parts.push(renderFact("Usage", formatUsage(status.electric)));
+    }
+    if (status.errorCode && status.errorCode !== "00") {
+      parts.push(renderFact("Error", status.errorCode));
+    }
+    facts.replaceChildren(...parts);
+  }
+
+  const error = deviceErrors.get(device.id);
+  const sleepError = device.sleepTimer && device.sleepTimer.lastError && !device.sleepTimer.nextAttemptAt
+    ? `Sleep timer failed: ${device.sleepTimer.lastError}`
+    : "";
+  const boostError = device.boostTimer && device.boostTimer.lastError && !device.boostTimer.nextAttemptAt
+    ? `Boost failed: ${device.boostTimer.lastError}`
+    : "";
+  const errorContainer = card.querySelector(".device-error-container");
+  if (errorContainer) {
+    const messages = [
+      error,
+      sleepError,
+      boostError,
+    ].filter(Boolean);
+    errorContainer.replaceChildren(...messages.map((text) => createElement("p", { className: "device-error", text })));
+  }
 }
 
 function renderDevices() {
@@ -1165,7 +1325,23 @@ function renderDevices() {
   devices.sort(compareDevices);
   els.deviceList.hidden = editOpen;
   els.emptyState.hidden = editOpen || devices.length > 0;
-  els.deviceList.replaceChildren(...devices.map(renderDeviceCard));
+  const visibleIds = new Set();
+  const cards = devices.map((device) => {
+    visibleIds.add(device.id);
+    let card = deviceCardElements.get(device.id);
+    if (!card) {
+      card = renderDeviceCard(device);
+      deviceCardElements.set(device.id, card);
+    }
+    updateDeviceCard(card, device);
+    return card;
+  });
+  for (const [deviceId] of deviceCardElements.entries()) {
+    if (!visibleIds.has(deviceId)) {
+      deviceCardElements.delete(deviceId);
+    }
+  }
+  els.deviceList.replaceChildren(...cards);
   renderOutdoorSummary();
   updateCountdownDisplays();
   syncDevicePolling();
