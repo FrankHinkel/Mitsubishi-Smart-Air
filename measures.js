@@ -6,7 +6,7 @@ const { execFileSync } = require("node:child_process");
 
 const ROOT = __dirname;
 const MEASURES_DIR = process.env.MEASURES_DIR || path.join(ROOT, "measures");
-const MAX_BUFFER = 8 * 1024 * 1024;
+const MAX_BUFFER = 64 * 1024 * 1024;
 const BUCKET_MINUTES = 10;
 const TEMPERATURE_KINDS = new Set(["indoor", "outdoor"]);
 
@@ -173,7 +173,7 @@ function queryMeasurements(options) {
     throw new Error("Invalid range. Use ISO dates and ensure to > from.");
   }
 
-  const limit = Math.min(5000, Math.max(1, asNonNegativeInt(options.limit, 500)));
+  const limit = Math.min(500000, Math.max(1, asNonNegativeInt(options.limit, 500)));
   const offset = Math.min(100000, asNonNegativeInt(options.offset, 0));
   const temperatureKind = normalizeTemperatureKind(options.temperatureKind);
   const dbPaths = listMeasuresDbPaths(fromDate, toDate);
