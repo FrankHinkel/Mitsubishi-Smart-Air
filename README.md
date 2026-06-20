@@ -131,7 +131,7 @@ Query parameters:
 - `from` ISO timestamp (optional, default: `to - 24h`)
 - `to` ISO timestamp (optional, default: now)
 - `temperatureKind` one of `indoor`, `outdoor`, `all` (optional, default: `all`)
-- `limit` integer `1..5000` (optional, default: `500`)
+- `limit` integer `1..500000` (optional, default: `500`)
 - `offset` integer `>=0` (optional, default: `0`)
 
 Example:

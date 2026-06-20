@@ -252,7 +252,7 @@ function parseIsoRange(url) {
 function parsePagination(url) {
   const limitRaw = Number.parseInt(String(url.searchParams.get("limit") || "500"), 10);
   const offsetRaw = Number.parseInt(String(url.searchParams.get("offset") || "0"), 10);
-  const limit = Number.isInteger(limitRaw) ? Math.min(5000, Math.max(1, limitRaw)) : 500;
+  const limit = Number.isInteger(limitRaw) ? Math.min(500000, Math.max(1, limitRaw)) : 500;
   const offset = Number.isInteger(offsetRaw) ? Math.min(100000, Math.max(0, offsetRaw)) : 0;
   return { limit, offset };
 }
