@@ -288,12 +288,16 @@ function parseTemperatureKind(url) {
   throw new Error("Invalid temperatureKind. Use indoor, outdoor, or all.");
 }
 
-function recordMeasurements(device) {
+function recordMeasurements(device, recordedAt = new Date()) {
   try {
-    measures.recordDeviceMeasurements(device);
+    measures.recordDeviceMeasurements(device, measurementRecordedAt(recordedAt));
   } catch {
     // Measurement logging must never block control or refresh flows.
   }
+}
+
+function measurementRecordedAt(value = new Date()) {
+  return measures.roundToNearestMinute(value);
 }
 
 function safeDevice(device) {
@@ -758,21 +762,24 @@ async function handleLogin(request, response) {
   });
 }
 
-async function handleDeviceStatus(deviceId, response) {
+async function handleDeviceStatus(deviceId, request, response) {
   const device = db.getDevice(deviceId);
   if (!device) {
     sendJson(response, 404, { error: "Device not found." });
     return;
   }
 
-  const { saved, debug } = await refreshDeviceCache(device);
+  const payload = await parseJsonBody(request);
+  const { saved, debug } = await refreshDeviceCache(device, {
+    recordedAt: measurementRecordedAt(payload.recordedAt || new Date()),
+  });
   sendJson(response, 200, {
     device: safeDevice(saved),
     debug,
   });
 }
 
-async function refreshDeviceCache(device) {
+async function refreshDeviceCache(device, options = {}) {
   const result = await retryDeviceOperation(() => refreshStatus(deviceToConfig(device)));
   const operatorId = preferredOperatorId(result.debug, result.config.operatorId);
   const saved = db.saveDevice({
@@ -785,7 +792,7 @@ async function refreshDeviceCache(device) {
     status: result.status,
     debug: result.debug,
   });
-  recordMeasurements(saved);
+  recordMeasurements(saved, options.recordedAt);
   return {
     debug: result.debug,
     saved,
@@ -800,13 +807,8 @@ async function refreshVisibleDeviceCache() {
   statusPollRunning = true;
   try {
     const devices = db.listDevices({ includeHidden: false });
-    for (const device of devices) {
-      try {
-        await refreshDeviceCache(device);
-      } catch {
-        // Background refresh should never make the UI feel noisy or blocked.
-      }
-    }
+    const recordedAt = measurementRecordedAt(new Date());
+    await Promise.allSettled(devices.map((device) => refreshDeviceCache(device, { recordedAt })));
   } finally {
     statusPollRunning = false;
   }
@@ -1267,7 +1269,7 @@ async function handleApi(request, response, pathname, url) {
       return;
     }
     if (action === "status") {
-      await handleDeviceStatus(deviceId, response);
+      await handleDeviceStatus(deviceId, request, response);
       return;
     }
     if (action === "apply") {

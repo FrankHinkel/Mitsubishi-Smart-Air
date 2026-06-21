@@ -12,6 +12,7 @@ const INDOOR_TEMP = [-30.0, -30.0, -30.0, -30.0, -30.0, -30.0, -30.0, -30.0, -30
 
 const requestQueues = new Map();
 const activeProtocols = new Map();
+let nextRequestSequence = 0;
 
 function deviceKey(config) {
   return `${config.ipAddress}:${config.port}`;
@@ -57,18 +58,68 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function enqueue(config, task) {
+function commandPriority(command) {
+  if (command === "setAirconStat") {
+    return 10;
+  }
+  if (command === "updateAccountInfo") {
+    return 5;
+  }
+  return 0;
+}
+
+function runNextQueuedRequest(key) {
+  const queue = requestQueues.get(key);
+  if (!queue || queue.running) {
+    return;
+  }
+
+  const entry = queue.items.shift();
+  if (!entry) {
+    requestQueues.delete(key);
+    return;
+  }
+
+  queue.running = true;
+  (async () => {
+    try {
+      await sleep(REQUEST_GAP_MS);
+      entry.resolve(await entry.task());
+    } catch (error) {
+      entry.reject(error);
+    } finally {
+      queue.running = false;
+      if (queue.items.length) {
+        queueMicrotask(() => runNextQueuedRequest(key));
+      } else {
+        requestQueues.delete(key);
+      }
+    }
+  })();
+}
+
+function enqueue(config, task, options = {}) {
   const key = deviceKey(config);
-  const queue = requestQueues.get(key) || Promise.resolve();
-  const next = queue.then(async () => {
-    await sleep(REQUEST_GAP_MS);
-    return task();
-  }, async () => {
-    await sleep(REQUEST_GAP_MS);
-    return task();
+  let queue = requestQueues.get(key);
+  if (!queue) {
+    queue = {
+      items: [],
+      running: false,
+    };
+    requestQueues.set(key, queue);
+  }
+
+  return new Promise((resolve, reject) => {
+    queue.items.push({
+      priority: Number.isFinite(options.priority) ? options.priority : 0,
+      reject,
+      resolve,
+      sequence: nextRequestSequence += 1,
+      task,
+    });
+    queue.items.sort((left, right) => right.priority - left.priority || left.sequence - right.sequence);
+    runNextQueuedRequest(key);
   });
-  requestQueues.set(key, next.then(() => undefined, () => undefined));
-  return next;
 }
 
 function buildRequestBody(config, command, contents = null) {
@@ -159,7 +210,11 @@ async function callDeviceInternal(config, command, contents, allowOperatorIdRetr
   let lastError = null;
   for (const protocol of protocols) {
     try {
-      const response = await enqueue(config, () => sendDeviceRequest(protocol, config, command, body));
+      const response = await enqueue(
+        config,
+        () => sendDeviceRequest(protocol, config, command, body),
+        { priority: commandPriority(command) }
+      );
       activeProtocols.set(key, protocol);
       return { config: { ...config, protocol }, response };
     } catch (error) {

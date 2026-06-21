@@ -725,6 +725,10 @@ function statusOf(device) {
   };
 }
 
+function currentDeviceById(deviceId) {
+  return devices.find((device) => device.id === deviceId) || null;
+}
+
 function clampToStep(value, min, max, step) {
   const clamped = Math.min(max, Math.max(min, value));
   return Math.round(clamped / step) * step;
@@ -1235,6 +1239,7 @@ function renderHorizontalLouverMenu(device) {
 }
 
 function renderSleepMenu(device) {
+  const deviceId = device.id;
   const wrapper = createElement("div", { className: "symbol-menu sleep-menu" });
   wrapper.dataset.menuLabel = "sleep";
   const trigger = createElement("button", { className: "symbol-trigger has-icon sleep-trigger" });
@@ -1263,7 +1268,7 @@ function renderSleepMenu(device) {
     preventPointerFocusScroll(button);
     button.addEventListener("click", guardedControlClick(button, () => {
       menu.hidden = true;
-      setSleepTimer(device.id, option.hours).catch(() => {});
+      setSleepTimer(deviceId, option.hours).catch(() => {});
     }));
     menu.append(button);
   }
@@ -1272,6 +1277,7 @@ function renderSleepMenu(device) {
 }
 
 function renderBoostMenu(device) {
+  const deviceId = device.id;
   const status = statusOf(device);
   const boostActive = Boolean(device.boostTimer && device.boostTimer.until);
   const wrapper = createElement("div", { className: "symbol-menu boost-menu" });
@@ -1291,9 +1297,11 @@ function renderBoostMenu(device) {
   preventPointerFocusScroll(trigger);
   const menu = createElement("div", { className: "popup-menu timer-options", hidden: true });
   trigger.addEventListener("click", guardedControlClick(trigger, (event, scroll) => {
-    if (boostActive) {
+    const currentDevice = currentDeviceById(deviceId);
+    const currentBoostActive = Boolean(currentDevice && currentDevice.boostTimer && currentDevice.boostTimer.until);
+    if (currentBoostActive) {
       setPopupMenuVisible(menu, trigger, false);
-      setBoostTimer(device.id, 0).catch(() => {});
+      setBoostTimer(deviceId, 0).catch(() => {});
       restoreScroll(scroll);
       return;
     }
@@ -1309,7 +1317,7 @@ function renderBoostMenu(device) {
     preventPointerFocusScroll(button);
     button.addEventListener("click", guardedControlClick(button, () => {
       menu.hidden = true;
-      setBoostTimer(device.id, option.minutes).catch(() => {});
+      setBoostTimer(deviceId, option.minutes).catch(() => {});
     }));
     menu.append(button);
   }
@@ -1346,6 +1354,7 @@ function renderLouverControls(device) {
 }
 
 function renderDeviceCard(device) {
+  const deviceId = device.id;
   const status = statusOf(device);
   const card = createElement("article", { className: "device-card" });
   card.dataset.modeTone = modeTone(status);
@@ -1378,14 +1387,19 @@ function renderDeviceCard(device) {
   powerButton.append(createLucideIcon("power", "power-button-icon"));
   preventPointerFocusScroll(powerButton);
   powerButton.addEventListener("click", guardedControlClick(powerButton, () => {
-    const nextOperation = !status.operation;
-    const nextPatch = !nextOperation && device.boostTimer && device.boostTimer.restoreStatus
+    const currentDevice = currentDeviceById(deviceId);
+    if (!currentDevice) {
+      return;
+    }
+    const currentStatus = statusOf(currentDevice);
+    const nextOperation = !currentStatus.operation;
+    const nextPatch = !nextOperation && currentDevice.boostTimer && currentDevice.boostTimer.restoreStatus
       ? {
-        ...device.boostTimer.restoreStatus,
+        ...currentDevice.boostTimer.restoreStatus,
         operation: false,
       }
       : { operation: nextOperation };
-    queueDevicePatch(device.id, nextPatch, { forceOff: !nextOperation });
+    queueDevicePatch(deviceId, nextPatch, { forceOff: !nextOperation });
   }));
 
   headerActions.append(renderBoostMenu(device), renderSleepMenu(device), powerButton);
@@ -1501,19 +1515,26 @@ function updateDeviceCard(card, device) {
 
   const sleepMenu = card.querySelector(".sleep-menu");
   if (sleepMenu) {
-    const trigger = sleepMenu.querySelector(".sleep-trigger-label");
-    if (trigger) {
-      trigger.textContent = sleepSummaryText(device);
-      trigger.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
+    const triggerLabel = sleepMenu.querySelector(".sleep-trigger-label");
+    if (triggerLabel) {
+      triggerLabel.textContent = sleepSummaryText(device);
+    }
+    const triggerButton = sleepMenu.querySelector(".sleep-trigger");
+    if (triggerButton) {
+      triggerButton.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
     }
   }
 
   const boostMenu = card.querySelector(".boost-menu");
   if (boostMenu) {
-    const trigger = boostMenu.querySelector(".boost-trigger-label");
-    if (trigger) {
-      trigger.textContent = boostSummaryText(device);
-      trigger.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
+    const triggerLabel = boostMenu.querySelector(".boost-trigger-label");
+    if (triggerLabel) {
+      triggerLabel.textContent = boostSummaryText(device);
+    }
+    const triggerButton = boostMenu.querySelector(".boost-trigger");
+    if (triggerButton) {
+      triggerButton.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
+      triggerButton.disabled = !boostModeAvailable(status);
     }
   }
 
@@ -1778,7 +1799,9 @@ async function refreshDevice(deviceId, options = {}) {
   try {
     const data = await apiFetch(`/api/devices/${deviceId}/status`, {
       method: "POST",
-      body: {},
+      body: {
+        recordedAt: options.recordedAt || null,
+      },
     });
     if (data.device) {
       applyServerDevice(data.device, pendingDeviceWrites.has(deviceId));
@@ -1809,16 +1832,13 @@ async function refreshAllDevices(options = {}) {
     return;
   }
 
+  const recordedAt = new Date().toISOString();
   let failures = 0;
-  for (const device of [...devices]) {
-    try {
-      await refreshDevice(device.id, {
-        showErrors: Boolean(options.showErrors),
-      });
-    } catch {
-      failures += 1;
-    }
-  }
+  const results = await Promise.allSettled([...devices].map((device) => refreshDevice(device.id, {
+    recordedAt,
+    showErrors: Boolean(options.showErrors),
+  })));
+  failures = results.filter((result) => result.status === "rejected").length;
   if (options.showErrors) {
     setMessage(failures ? "Some devices could not be refreshed." : "", failures ? "error" : "");
   }

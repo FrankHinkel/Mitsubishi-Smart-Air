@@ -61,6 +61,14 @@ function bucketDate(date = new Date()) {
   return next;
 }
 
+function roundToNearestMinute(date = new Date()) {
+  const parsed = new Date(date);
+  if (!Number.isFinite(parsed.getTime())) {
+    return roundToNearestMinute(new Date());
+  }
+  return new Date(Math.round(parsed.getTime() / 60000) * 60000);
+}
+
 function bucketIso(date = new Date()) {
   return bucketDate(date).toISOString();
 }
@@ -317,9 +325,10 @@ function recordDeviceMeasurements(device, recordedAt = new Date()) {
     return 0;
   }
 
-  const recordedAtIso = new Date(recordedAt).toISOString();
-  const bucketAt = bucketIso(recordedAt);
-  const dbPath = measuresDbPath(recordedAt);
+  const roundedRecordedAt = roundToNearestMinute(recordedAt);
+  const recordedAtIso = roundedRecordedAt.toISOString();
+  const bucketAt = bucketIso(roundedRecordedAt);
+  const dbPath = measuresDbPath(roundedRecordedAt);
   ensureMeasuresSchema(dbPath);
 
   const statements = ["BEGIN;"];
@@ -353,4 +362,5 @@ module.exports = {
   queryMeasurements,
   queryDeviceMeasurements,
   recordDeviceMeasurements,
+  roundToNearestMinute,
 };
