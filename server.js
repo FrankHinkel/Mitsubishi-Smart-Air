@@ -33,6 +33,7 @@ const STATUS_POLL_START_DELAY_MS = Number.parseInt(process.env.STATUS_POLL_START
 const SLEEP_TIMER_CHECK_INTERVAL_MS = Number.parseInt(process.env.SLEEP_TIMER_CHECK_INTERVAL_MS || "30000", 10);
 const SLEEP_TIMER_RETRY_DELAY_MS = Number.parseInt(process.env.SLEEP_TIMER_RETRY_DELAY_MS || "180000", 10);
 const SLEEP_TIMER_MAX_RETRIES = Number.parseInt(process.env.SLEEP_TIMER_MAX_RETRIES || "3", 10);
+const EVENTS_HEARTBEAT_INTERVAL_MS = Number.parseInt(process.env.EVENTS_HEARTBEAT_INTERVAL_MS || "25000", 10);
 const DEVICE_OPERATION_RETRIES = 3;
 const DEVICE_OPERATION_RETRY_DELAY_MS = 3000;
 const MAC_PREFIXES = parseCsv(process.env.MAC_PREFIXES || "a0:43:b0").map(normalizeMacPrefix);
@@ -63,6 +64,9 @@ setInterval(() => db.deleteExpiredSessions(), 60 * 60 * 1000).unref();
 let statusPollRunning = false;
 let boostTimerRunning = false;
 let sleepTimerRunning = false;
+let nextEventsClientId = 0;
+let nextEventsMessageId = 0;
+const eventsClients = new Map();
 
 function parseCsv(value) {
   return String(value || "")
@@ -298,6 +302,87 @@ function recordMeasurements(device, recordedAt = new Date()) {
 
 function measurementRecordedAt(value = new Date()) {
   return measures.roundToNearestMinute(value);
+}
+
+function appSnapshot() {
+  return {
+    devices: db.listDevices({ includeHidden: true }).map(safeDevice),
+    emittedAt: new Date().toISOString(),
+    settings: db.getAppSettings(),
+  };
+}
+
+function writeSse(response, eventName, payload) {
+  const lines = [
+    `id: ${++nextEventsMessageId}`,
+    `event: ${eventName}`,
+    `data: ${JSON.stringify(payload)}`,
+    "",
+    "",
+  ];
+  response.write(lines.join("\n"));
+}
+
+function broadcastAppSnapshot(reason = "update") {
+  if (!eventsClients.size) {
+    return;
+  }
+
+  const payload = {
+    reason,
+    ...appSnapshot(),
+  };
+  for (const [clientId, client] of eventsClients.entries()) {
+    try {
+      writeSse(client.response, "snapshot", payload);
+    } catch {
+      if (client.heartbeat) {
+        clearInterval(client.heartbeat);
+      }
+      eventsClients.delete(clientId);
+    }
+  }
+}
+
+function handleEventsStream(request, response) {
+  response.writeHead(200, {
+    "Cache-Control": "no-store",
+    Connection: "keep-alive",
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "X-Accel-Buffering": "no",
+  });
+  response.write(": connected\n\n");
+
+  const clientId = ++nextEventsClientId;
+  const heartbeat = setInterval(() => {
+    try {
+      response.write(": keep-alive\n\n");
+    } catch {
+      // Closed sockets are cleaned up by the request/response close handlers.
+    }
+  }, EVENTS_HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
+
+  eventsClients.set(clientId, {
+    heartbeat,
+    response,
+  });
+  writeSse(response, "snapshot", {
+    reason: "initial",
+    ...appSnapshot(),
+  });
+
+  function cleanup() {
+    const client = eventsClients.get(clientId);
+    if (!client) {
+      return;
+    }
+    clearInterval(client.heartbeat);
+    eventsClients.delete(clientId);
+  }
+
+  request.on("close", cleanup);
+  response.on("close", cleanup);
 }
 
 function safeDevice(device) {
@@ -793,6 +878,9 @@ async function refreshDeviceCache(device, options = {}) {
     debug: result.debug,
   });
   recordMeasurements(saved, options.recordedAt);
+  if (options.broadcast !== false) {
+    broadcastAppSnapshot(options.reason || "device-status");
+  }
   return {
     debug: result.debug,
     saved,
@@ -808,7 +896,13 @@ async function refreshVisibleDeviceCache() {
   try {
     const devices = db.listDevices({ includeHidden: false });
     const recordedAt = measurementRecordedAt(new Date());
-    await Promise.allSettled(devices.map((device) => refreshDeviceCache(device, { recordedAt })));
+    const results = await Promise.allSettled(devices.map((device) => refreshDeviceCache(device, {
+      broadcast: false,
+      recordedAt,
+    })));
+    if (results.some((result) => result.status === "fulfilled")) {
+      broadcastAppSnapshot("status-poll");
+    }
   } finally {
     statusPollRunning = false;
   }
@@ -881,6 +975,7 @@ async function handleDeviceApply(deviceId, request, response) {
   if (requestedStatus.operation === false) {
     finalDevice = db.setDeviceSleepTimer(finalDevice.id, null);
   }
+  broadcastAppSnapshot("device-apply");
   sendJson(response, 200, {
     device: safeDevice(finalDevice),
     debug,
@@ -901,8 +996,10 @@ async function handleDeviceSleep(deviceId, request, response) {
 
   const payload = await parseJsonBody(request);
   if (payload.hours === null || payload.hours === undefined || payload.hours === "" || payload.hours === 0) {
+    const updated = db.setDeviceSleepTimer(device.id, null);
+    broadcastAppSnapshot("sleep-timer");
     sendJson(response, 200, {
-      device: safeDevice(db.setDeviceSleepTimer(device.id, null)),
+      device: safeDevice(updated),
     });
     return;
   }
@@ -925,6 +1022,7 @@ async function handleDeviceSleep(deviceId, request, response) {
   sendJson(response, 200, {
     device: safeDevice(db.setDeviceSleepTimer(nextDevice.id, until)),
   });
+  broadcastAppSnapshot("sleep-timer");
 }
 
 async function handleDeviceBoost(deviceId, request, response) {
@@ -938,14 +1036,18 @@ async function handleDeviceBoost(deviceId, request, response) {
   if (payload.minutes === null || payload.minutes === undefined || payload.minutes === "" || payload.minutes === 0) {
     const restoreStatus = boostRestoreStatus(device);
     if (!restoreStatus) {
+      const updated = db.setDeviceBoostTimer(device.id, null);
+      broadcastAppSnapshot("boost-timer");
       sendJson(response, 200, {
-        device: safeDevice(db.setDeviceBoostTimer(device.id, null)),
+        device: safeDevice(updated),
       });
       return;
     }
     const { saved, debug } = await applyDeviceStatus(device, restoreStatus);
+    const updated = db.setDeviceBoostTimer(saved.id, null);
+    broadcastAppSnapshot("boost-timer");
     sendJson(response, 200, {
-      device: safeDevice(db.setDeviceBoostTimer(saved.id, null)),
+      device: safeDevice(updated),
       debug,
     });
     return;
@@ -963,6 +1065,7 @@ async function handleDeviceBoost(deviceId, request, response) {
   const { saved, debug } = await applyDeviceStatus(device, boostStatus);
   const until = new Date(Date.now() + minutes * 60 * 1000).toISOString();
   const boosted = db.setDeviceBoostTimer(saved.id, until, restoreStatus);
+  broadcastAppSnapshot("boost-timer");
   sendJson(response, 200, {
     device: safeDevice(boosted),
     debug,
@@ -989,6 +1092,7 @@ async function runDueSleepTimers() {
         if (device.boostTimer) {
           updated = db.setDeviceBoostTimer(updated.id, null);
         }
+        broadcastAppSnapshot("sleep-timer-due");
       } catch (error) {
         const nextRetryCount = (device.sleepTimer ? device.sleepTimer.retryCount : 0) + 1;
         const message = error && error.message ? error.message : String(error);
@@ -996,6 +1100,7 @@ async function runDueSleepTimers() {
           ? new Date(Date.now() + SLEEP_TIMER_RETRY_DELAY_MS).toISOString()
           : null;
         db.markSleepTimerFailure(device.id, nextRetryCount, nextAttemptAt, message);
+        broadcastAppSnapshot("sleep-timer-retry");
       }
     }
   } finally {
@@ -1016,10 +1121,12 @@ async function runDueBoostTimers() {
         const restoreStatus = boostRestoreStatus(device);
         if (!restoreStatus) {
           db.setDeviceBoostTimer(device.id, null);
+          broadcastAppSnapshot("boost-timer");
           continue;
         }
         const result = await applyDeviceStatus(device, restoreStatus);
         db.setDeviceBoostTimer(result.saved.id, null);
+        broadcastAppSnapshot("boost-timer-due");
       } catch (error) {
         const nextRetryCount = (device.boostTimer ? device.boostTimer.retryCount : 0) + 1;
         const message = error && error.message ? error.message : String(error);
@@ -1027,6 +1134,7 @@ async function runDueBoostTimers() {
           ? new Date(Date.now() + SLEEP_TIMER_RETRY_DELAY_MS).toISOString()
           : null;
         db.markBoostTimerFailure(device.id, nextRetryCount, nextAttemptAt, message);
+        broadcastAppSnapshot("boost-timer-retry");
       }
     }
   } finally {
@@ -1050,6 +1158,7 @@ async function handleDeviceRegister(deviceId, response) {
     },
     debug: result.debug,
   });
+  broadcastAppSnapshot("device-register");
   sendJson(response, 200, {
     device: safeDevice(saved),
     debug: result.debug,
@@ -1208,6 +1317,11 @@ async function handleApi(request, response, pathname, url) {
     return;
   }
 
+  if (request.method === "GET" && pathname === "/api/events") {
+    handleEventsStream(request, response);
+    return;
+  }
+
   if (request.method === "POST" && pathname === "/api/devices") {
     const payload = await parseJsonBody(request);
     const desiredName = String(payload.name || payload.deviceId || "").trim();
@@ -1227,6 +1341,7 @@ async function handleApi(request, response, pathname, url) {
       info: probe.info,
       debug: probe.debug,
     });
+    broadcastAppSnapshot("device-add");
     sendJson(response, 201, {
       device: safeDevice(saved),
       debug: probe.debug,
@@ -1240,6 +1355,9 @@ async function handleApi(request, response, pathname, url) {
     const discoveries = await discoverDevices({
       wideScan: visibleDevices.length === 0 || payload.wideScan === true,
     });
+    if (discoveries.length) {
+      broadcastAppSnapshot("device-scan");
+    }
     sendJson(response, 200, {
       discoveries: discoveries.map(safeDevice),
       devices: db.listDevices({ includeHidden: false }).map(safeDevice),
@@ -1253,6 +1371,7 @@ async function handleApi(request, response, pathname, url) {
     const settings = db.saveAppSettings({
       title: payload.title,
     });
+    broadcastAppSnapshot("device-list");
     sendJson(response, 200, {
       devices: devices.map(safeDevice),
       settings,

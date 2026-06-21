@@ -240,6 +240,7 @@ const devicePollState = new Map();
 const deviceCardElements = new Map();
 let statusPollTimer = null;
 let countdownTimer = null;
+let backendEvents = null;
 let lastPointerScroll = {
   at: 0,
   x: 0,
@@ -648,6 +649,7 @@ function setLoginError(message = "") {
 }
 
 function showLogin() {
+  closeBackendEvents();
   els.loginView.hidden = false;
   els.appView.hidden = true;
   resetPullToRefreshVisual();
@@ -658,6 +660,7 @@ function showApp() {
   els.loginView.hidden = true;
   els.appView.hidden = false;
   resetPullToRefreshVisual();
+  openBackendEvents();
 }
 
 function defaultStatus() {
@@ -1055,6 +1058,65 @@ function compareDevices(left, right) {
   return (left.sortOrder || 0) - (right.sortOrder || 0)
     || String(left.name || "").localeCompare(String(right.name || ""), "en")
     || left.id - right.id;
+}
+
+function mergeServerDeviceState(updatedDevice) {
+  if (!pendingDeviceWrites.has(updatedDevice.id)) {
+    return updatedDevice;
+  }
+  const local = currentDeviceById(updatedDevice.id);
+  return local
+    ? {
+      ...updatedDevice,
+      status: statusOf(local),
+    }
+    : updatedDevice;
+}
+
+function applyBackendSnapshot(snapshot = {}) {
+  if (!snapshot || !Array.isArray(snapshot.devices)) {
+    return;
+  }
+
+  if (snapshot.settings) {
+    applyAppSettings(snapshot.settings);
+  }
+
+  allDevices = snapshot.devices;
+  devices = snapshot.devices
+    .filter((device) => !device.hidden)
+    .map(mergeServerDeviceState)
+    .sort(compareDevices);
+  renderDevices();
+}
+
+function openBackendEvents() {
+  if (backendEvents || typeof EventSource === "undefined") {
+    return;
+  }
+
+  backendEvents = new EventSource("/api/events");
+  backendEvents.addEventListener("snapshot", (event) => {
+    try {
+      const payload = JSON.parse(event.data || "{}");
+      applyBackendSnapshot(payload);
+    } catch {
+      // Ignore malformed event payloads and keep the stream alive.
+    }
+  });
+  backendEvents.onerror = () => {
+    if (els.loginView && !els.loginView.hidden) {
+      closeBackendEvents();
+    }
+  };
+}
+
+function closeBackendEvents() {
+  if (!backendEvents) {
+    return;
+  }
+  backendEvents.close();
+  backendEvents = null;
 }
 
 function renderFact(label, value) {
@@ -2212,6 +2274,7 @@ async function login(event) {
 }
 
 async function logout() {
+  closeBackendEvents();
   await apiFetch("/api/logout", {
     method: "POST",
     body: {},

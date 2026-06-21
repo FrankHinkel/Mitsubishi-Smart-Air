@@ -97,11 +97,12 @@ STATUS_POLL_INTERVAL_MS=60000
 SLEEP_TIMER_CHECK_INTERVAL_MS=30000
 SLEEP_TIMER_RETRY_DELAY_MS=180000
 SLEEP_TIMER_MAX_RETRIES=3
+EVENTS_HEARTBEAT_INTERVAL_MS=25000
 ```
 
 `DEFAULT_ADMIN_USERNAME` and `DEFAULT_ADMIN_PASSWORD` are only used when the database has no users yet.
 
-The server refreshes visible device status in the background and the UI keeps a per-device poll interval in the edit list. When a device is actively used, the UI temporarily polls it every 5 seconds so the status feels live on handheld devices.
+The server refreshes visible device status in the background and streams backend changes straight to the browser through a same-origin Server-Sent Events channel at `GET /api/events`. The UI still keeps a per-device poll interval in the edit list so the backend can continue pulling fresh state from the WF-RAC units, but once the backend cache changes the browser no longer has to wait for the next UI refresh cycle.
 
 Read and write errors are retried several times before the app reports a failure, which keeps short network hiccups from surfacing as immediate misses.
 
