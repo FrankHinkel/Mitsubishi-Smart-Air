@@ -32,6 +32,7 @@
 
 html {
   font-size: calc(16px * var(--ui-text-scale));
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -57,6 +58,11 @@ button {
   color: var(--ink);
   background: #e8ede8;
   cursor: pointer;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  user-select: none;
   transition:
     transform 120ms ease,
     filter 120ms ease,
@@ -93,6 +99,37 @@ select {
   padding: calc(9px * var(--ui-control-scale)) calc(11px * var(--ui-control-scale));
   color: var(--ink);
   background: #fbfcfb;
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.app-view,
+.login-panel button,
+.device-card,
+.device-controls,
+.device-header-actions,
+.device-facts,
+.fact,
+.symbol-menu,
+.popup-menu,
+.top-actions,
+.empty-actions,
+.edit-actions,
+.order-buttons,
+.check-row,
+.pull-to-refresh {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.app-view input,
+.app-view select,
+.login-panel input {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 label span,
@@ -714,22 +751,26 @@ label span,
 
 .popup-menu {
   position: absolute;
-  right: 0;
+  left: 50%;
+  right: auto;
   top: calc(100% + 6px);
   z-index: 10;
   display: grid;
   width: max-content;
   min-width: 156px;
+  max-width: calc(100vw - 24px);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
   background: #ffffff;
   box-shadow: var(--shadow);
+  transform: translateX(calc(-50% + var(--popup-shift, 0px)));
 }
 
 .popup-menu.is-above {
   top: auto;
   bottom: calc(100% + 6px);
+  transform: translateX(calc(-50% + var(--popup-shift, 0px)));
 }
 
 .symbol-menu[data-menu-label="horizontal"] .popup-menu {
@@ -1038,10 +1079,11 @@ label span,
 
 @media (max-width: 600px) {
   .popup-menu {
-    left: auto;
-    right: 0;
+    left: 50%;
+    right: auto;
     width: min(44vw, 200px);
     max-width: calc(100vw - 24px);
+    transform: translateX(calc(-50% + var(--popup-shift, 0px)));
   }
 
   .timer-options {

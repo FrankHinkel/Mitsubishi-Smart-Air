@@ -512,6 +512,30 @@ document.addEventListener("click", (event) => {
   }
 });
 
+function isLongPressProtectedTarget(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  if (target.closest("input, textarea, select, [contenteditable='true']")) {
+    return false;
+  }
+  return Boolean(target.closest(
+    "button, .symbol-menu, .popup-menu, .device-card, .top-actions, .empty-state, .edit-actions, .order-buttons, .pull-to-refresh"
+  ));
+}
+
+document.addEventListener("contextmenu", (event) => {
+  if (isLongPressProtectedTarget(event.target)) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("selectstart", (event) => {
+  if (isLongPressProtectedTarget(event.target)) {
+    event.preventDefault();
+  }
+});
+
 document.addEventListener("touchstart", (event) => {
   if (!canStartPullToRefresh(event)) {
     return;
@@ -1133,6 +1157,7 @@ function closeOpenMenus(except = null) {
     if (menu !== except) {
       menu.hidden = true;
       menu.classList.remove("is-above");
+      menu.style.removeProperty("--popup-shift");
     }
   });
 }
@@ -1152,17 +1177,15 @@ function updatePopupPlacement(menu, trigger) {
 
   menu.classList.toggle("is-above", shouldOpenAbove);
 
-  if (trigger.closest('.symbol-menu[data-menu-label="horizontal"]')) {
-    const adjustedRect = menu.getBoundingClientRect();
-    let shift = 0;
-    if (adjustedRect.left < margin) {
-      shift += margin - adjustedRect.left;
-    }
-    if (adjustedRect.right > window.innerWidth - margin) {
-      shift -= adjustedRect.right - (window.innerWidth - margin);
-    }
-    menu.style.setProperty("--popup-shift", `${Math.round(shift)}px`);
+  const adjustedRect = menu.getBoundingClientRect();
+  let shift = 0;
+  if (adjustedRect.left < margin) {
+    shift += margin - adjustedRect.left;
   }
+  if (adjustedRect.right + shift > window.innerWidth - margin) {
+    shift -= adjustedRect.right + shift - (window.innerWidth - margin);
+  }
+  menu.style.setProperty("--popup-shift", `${Math.round(shift)}px`);
 }
 
 function setPopupMenuVisible(menu, trigger, visible) {
