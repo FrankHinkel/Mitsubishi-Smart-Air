@@ -4,6 +4,8 @@ Local web application for Mitsubishi WF-RAC / Smart M-Air air conditioners.
 
 The browser only talks to the local Node.js server. The server handles WF-RAC HTTP/HTTPS quirks, SQLite persistence, login sessions, discovery, and device control.
 
+The proposed App Store direct mode and local data exchange between apps are assessed in [the serverless feasibility study and implementation plan](docs/serverless-plan.md). This is a plan; the current application still requires the local server.
+
 ![Smart Air UI](Screenshot.jpg)
 
 ## Quick start with Docker Compose
