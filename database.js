@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { SEASON_MODES } = require("./climate-policy");
 
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
@@ -319,16 +320,28 @@ function setSetting(key, value) {
 
 function getAppSettings() {
   const titleSetting = getSetting("app_title");
+  const modeSetting = getSetting("season_mode");
   return {
     title: normalizeAppTitle(titleSetting && titleSetting.value),
+    seasonMode: SEASON_MODES.includes(modeSetting && modeSetting.value) ? modeSetting.value : "manual",
   };
 }
 
 function saveAppSettings(input = {}) {
+  if (Object.hasOwn(input, "seasonMode") && !SEASON_MODES.includes(input.seasonMode)) {
+    throw new Error("Invalid season mode.");
+  }
   const settings = {
-    title: normalizeAppTitle(input.title),
+    ...getAppSettings(),
   };
-  setSetting("app_title", settings.title);
+  if (Object.hasOwn(input, "title")) {
+    settings.title = normalizeAppTitle(input.title);
+    setSetting("app_title", settings.title);
+  }
+  if (Object.hasOwn(input, "seasonMode")) {
+    settings.seasonMode = input.seasonMode;
+    setSetting("season_mode", settings.seasonMode);
+  }
   return settings;
 }
 

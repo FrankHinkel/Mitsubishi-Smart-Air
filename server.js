@@ -17,6 +17,7 @@ const {
 } = require("./device-api");
 const db = require("./database");
 const measures = require("./measures");
+const { SEASON_MODES, seasonPolicy, correctedStatus, needsCorrection } = require("./climate-policy");
 
 const execFileAsync = promisify(execFile);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -67,6 +68,37 @@ let sleepTimerRunning = false;
 let nextEventsClientId = 0;
 let nextEventsMessageId = 0;
 const eventsClients = new Map();
+const deviceOperations = new Map();
+const policyErrors = new Map();
+
+// Serialize complete read/correct/write operations, not only individual HTTP calls.
+async function withDeviceOperation(deviceId, action) {
+  const previous = deviceOperations.get(deviceId) || Promise.resolve();
+  const next = previous.catch(() => {}).then(action);
+  deviceOperations.set(deviceId, next);
+  try {
+    return await next;
+  } finally {
+    if (deviceOperations.get(deviceId) === next) deviceOperations.delete(deviceId);
+  }
+}
+
+function currentSeasonPolicy() {
+  const devices = db.listDevices({ includeHidden: false });
+  const policy = seasonPolicy(db.getAppSettings().seasonMode, devices);
+  const visibleIds = new Set(devices.map((device) => device.id));
+  return {
+    ...policy,
+    errors: policy.mode === "manual" ? [] : [...policyErrors]
+      .filter(([deviceId]) => visibleIds.has(deviceId)).map(([deviceId, message]) => ({ deviceId, message })),
+  };
+}
+
+function policyFailure(deviceId, error) {
+  if (db.getAppSettings().seasonMode !== "manual") {
+    policyErrors.set(deviceId, String(error.message || error));
+  }
+}
 
 function parseCsv(value) {
   return String(value || "")
@@ -309,6 +341,7 @@ function appSnapshot() {
     devices: db.listDevices({ includeHidden: true }).map(safeDevice),
     emittedAt: new Date().toISOString(),
     settings: db.getAppSettings(),
+    policy: currentSeasonPolicy(),
   };
 }
 
@@ -861,10 +894,25 @@ async function handleDeviceStatus(deviceId, request, response) {
   sendJson(response, 200, {
     device: safeDevice(saved),
     debug,
+    policy: currentSeasonPolicy(),
   });
 }
 
 async function refreshDeviceCache(device, options = {}) {
+  return withDeviceOperation(device.id, async () => {
+    try {
+      let result = await readDeviceCache(db.getDevice(device.id) || device, options);
+      if (options.enforce !== false) result = await enforceDevicePolicyUnlocked(result);
+      if (options.broadcast !== false) broadcastAppSnapshot(options.reason || "device-status");
+      return result;
+    } catch (error) {
+      policyFailure(device.id, error);
+      throw error;
+    }
+  });
+}
+
+async function readDeviceCache(device, options = {}) {
   const result = await retryDeviceOperation(() => refreshStatus(deviceToConfig(device)));
   const operatorId = preferredOperatorId(result.debug, result.config.operatorId);
   const saved = db.saveDevice({
@@ -878,13 +926,39 @@ async function refreshDeviceCache(device, options = {}) {
     debug: result.debug,
   });
   recordMeasurements(saved, options.recordedAt);
-  if (options.broadcast !== false) {
-    broadcastAppSnapshot(options.reason || "device-status");
-  }
   return {
     debug: result.debug,
     saved,
   };
+}
+
+async function enforceDevicePolicyUnlocked(result) {
+  const device = db.getDevice(result.saved.id) || result.saved;
+  const policy = currentSeasonPolicy();
+  if (policy.restriction === "off") {
+    if (device.boostTimer) db.setDeviceBoostTimer(device.id, null);
+    if (device.sleepTimer) db.setDeviceSleepTimer(device.id, null);
+    result.saved = db.getDevice(device.id);
+  }
+  if (!device.status || !needsCorrection(device.status, policy)) {
+    policyErrors.delete(device.id);
+    return result;
+  }
+  try {
+    const applied = await applyDeviceStatusUnlocked(device, correctedStatus(device.status, policy), {
+      forceOff: policy.restriction === "off",
+    });
+    // Read back the actual state, rather than treating a write acknowledgement as confirmation.
+    const confirmed = await readDeviceCache(applied.saved);
+    if (needsCorrection(confirmed.saved.status, currentSeasonPolicy())) {
+      throw new Error("Die Betriebssteuerung konnte am Klimagerät noch nicht bestätigt werden.");
+    }
+    policyErrors.delete(device.id);
+    return confirmed;
+  } catch (error) {
+    policyFailure(device.id, error);
+    return { ...result, saved: db.getDevice(device.id) };
+  }
 }
 
 async function refreshVisibleDeviceCache() {
@@ -897,21 +971,38 @@ async function refreshVisibleDeviceCache() {
     const devices = db.listDevices({ includeHidden: false });
     const recordedAt = measurementRecordedAt(new Date());
     const results = await Promise.allSettled(devices.map((device) => refreshDeviceCache(device, {
+      enforce: false,
       broadcast: false,
       recordedAt,
     })));
-    if (results.some((result) => result.status === "fulfilled")) {
-      broadcastAppSnapshot("status-poll");
-    }
+    // First collect all temperatures, then apply one shared outside-temperature policy.
+    await Promise.allSettled(results.filter((result) => result.status === "fulfilled")
+      .map((result) => withDeviceOperation(result.value.saved.id, () => enforceDevicePolicyUnlocked(result.value))));
+    broadcastAppSnapshot("status-poll");
   } finally {
     statusPollRunning = false;
   }
 }
 
 async function applyDeviceStatus(device, nextStatus, options = {}) {
+  return withDeviceOperation(device.id, async () => {
+    try {
+      const result = await applyDeviceStatusUnlocked(db.getDevice(device.id) || device, nextStatus, options);
+      policyErrors.delete(device.id);
+      return result;
+    } catch (error) {
+      policyFailure(device.id, error);
+      throw error;
+    }
+  });
+}
+
+async function applyDeviceStatusUnlocked(device, nextStatus, options = {}) {
   const config = deviceToConfig(device);
   const result = await retryDeviceOperation(async () => {
-    let currentResult = await applyStatus(config, nextStatus, {
+    // Re-evaluate on every retry, including changes made by another browser.
+    const allowedStatus = correctedStatus(nextStatus, currentSeasonPolicy());
+    let currentResult = await applyStatus(config, allowedStatus, {
       forceOff: Boolean(options.forceOff),
     });
     let operatorId = preferredOperatorId(currentResult.debug, currentResult.config.operatorId);
@@ -919,7 +1010,7 @@ async function applyDeviceStatus(device, nextStatus, options = {}) {
       currentResult = await applyStatus({
         ...config,
         operatorId,
-      }, nextStatus, {
+      }, correctedStatus(nextStatus, currentSeasonPolicy()), {
         forceOff: Boolean(options.forceOff),
       });
       operatorId = preferredOperatorId(currentResult.debug, currentResult.config.operatorId);
@@ -941,6 +1032,9 @@ async function applyDeviceStatus(device, nextStatus, options = {}) {
     debug: result.debug,
   });
   recordMeasurements(saved);
+  if (needsCorrection(saved.status, currentSeasonPolicy())) {
+    throw new Error("Das Klimagerät hat die erlaubte Betriebsart noch nicht übernommen.");
+  }
   return {
     debug: result.debug,
     saved,
@@ -1010,6 +1104,11 @@ async function handleDeviceSleep(deviceId, request, response) {
     return;
   }
 
+  if (currentSeasonPolicy().restriction === "off") {
+    sendJson(response, 409, { error: "Die Betriebssteuerung steht auf Aus. Sleep kann kein Gerät einschalten." });
+    return;
+  }
+
   const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
   let nextDevice = device;
   if (!normalizedStatus(device.status).operation) {
@@ -1018,6 +1117,10 @@ async function handleDeviceSleep(deviceId, request, response) {
       operation: true,
     });
     nextDevice = applied.saved;
+  }
+  if (currentSeasonPolicy().restriction === "off") {
+    sendJson(response, 409, { error: "Die Betriebssteuerung steht auf Aus. Sleep ist gesperrt." });
+    return;
   }
   sendJson(response, 200, {
     device: safeDevice(db.setDeviceSleepTimer(nextDevice.id, until)),
@@ -1059,10 +1162,20 @@ async function handleDeviceBoost(deviceId, request, response) {
     return;
   }
 
-  const currentStatus = normalizedStatus(device.status);
-  const restoreStatus = boostRestoreStatus(device) || currentStatus;
+  if (currentSeasonPolicy().restriction === "off") {
+    sendJson(response, 409, { error: "Die Betriebssteuerung steht auf Aus. Boost ist gesperrt." });
+    return;
+  }
+
+  const originalStatus = normalizedStatus(device.status);
+  const currentStatus = correctedStatus({ ...originalStatus, operation: true }, currentSeasonPolicy());
+  const restoreStatus = boostRestoreStatus(device) || { ...currentStatus, operation: originalStatus.operation };
   const boostStatus = buildBoostStatus(currentStatus);
   const { saved, debug } = await applyDeviceStatus(device, boostStatus);
+  if (currentSeasonPolicy().restriction === "off") {
+    sendJson(response, 409, { error: "Die Betriebssteuerung steht auf Aus. Boost ist gesperrt." });
+    return;
+  }
   const until = new Date(Date.now() + minutes * 60 * 1000).toISOString();
   const boosted = db.setDeviceBoostTimer(saved.id, until, restoreStatus);
   broadcastAppSnapshot("boost-timer");
@@ -1182,6 +1295,30 @@ async function handleApi(request, response, pathname, url) {
     sendJson(response, 200, {
       settings: db.getAppSettings(),
     });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/settings") {
+    if (!currentUser(request)) {
+      sendJson(response, 401, { error: "Login required." });
+      return;
+    }
+    const payload = await parseJsonBody(request);
+    if (!SEASON_MODES.includes(payload.seasonMode)) {
+      sendJson(response, 400, { error: "Invalid season mode." });
+      return;
+    }
+    db.saveAppSettings({ seasonMode: payload.seasonMode });
+    policyErrors.clear();
+    if (payload.seasonMode === "off") {
+      for (const device of db.listDevices({ includeHidden: false })) {
+        db.setDeviceBoostTimer(device.id, null);
+        db.setDeviceSleepTimer(device.id, null);
+      }
+    }
+    broadcastAppSnapshot("season-mode");
+    if (payload.seasonMode !== "manual") await refreshVisibleDeviceCache();
+    sendJson(response, 200, appSnapshot());
     return;
   }
 
@@ -1313,6 +1450,7 @@ async function handleApi(request, response, pathname, url) {
     const includeHidden = url.searchParams.get("includeHidden") === "1";
     sendJson(response, 200, {
       devices: db.listDevices({ includeHidden }).map(safeDevice),
+      policy: currentSeasonPolicy(),
     });
     return;
   }

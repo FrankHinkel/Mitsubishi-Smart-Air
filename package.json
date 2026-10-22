@@ -5,7 +5,8 @@
   "description": "Local web control for Mitsubishi WF-RAC air conditioners.",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check database.js && node --check app.js"
+    "check": "node --check server.js && node --check database.js && node --check app.js && node --check climate-policy.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20"

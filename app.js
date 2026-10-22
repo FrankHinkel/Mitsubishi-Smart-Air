@@ -189,6 +189,9 @@ const LUCIDE_ICON_NODES = {
 
 const els = {
   appTitleInput: document.querySelector("#appTitleInput"),
+  seasonModeSelect: document.querySelector("#seasonModeSelect"),
+  seasonModeHelp: document.querySelector("#seasonModeHelp"),
+  seasonPolicyNotice: document.querySelector("#seasonPolicyNotice"),
   appView: document.querySelector("#appView"),
   brandTitle: document.querySelector("#brandTitle"),
   closeEditButton: document.querySelector("#closeEditButton"),
@@ -233,7 +236,10 @@ let editItems = [];
 let editOpen = false;
 let appSettings = {
   title: DEFAULT_APP_TITLE,
+  seasonMode: "manual",
 };
+let climatePolicy = null;
+let savingSeasonMode = false;
 const deviceErrors = new Map();
 const pendingDeviceWrites = new Map();
 const devicePollState = new Map();
@@ -712,6 +718,7 @@ function applyAppSettings(settings = {}) {
   appSettings = {
     ...appSettings,
     title: normalizeAppTitle(settings.title),
+    seasonMode: settings.seasonMode || "manual",
   };
   document.title = appSettings.title;
   if (els.loginTitle) {
@@ -722,6 +729,59 @@ function applyAppSettings(settings = {}) {
   }
   if (els.appTitleInput && document.activeElement !== els.appTitleInput) {
     els.appTitleInput.value = appSettings.title;
+  }
+  if (els.seasonModeSelect && !savingSeasonMode) els.seasonModeSelect.value = appSettings.seasonMode;
+  renderSeasonPolicy();
+}
+
+function seasonPolicyText() {
+  const mode = appSettings.seasonMode;
+  if (mode === "manual") return "Manuell: Die App greift nicht in die Betriebsart ein.";
+  if (mode === "off") return "Aus: Alle angezeigten Klimageräte bleiben ausgeschaltet. Sleep und Boost sind gesperrt.";
+  const suffix = " Lüften und Entfeuchten bleiben erlaubt. Ausgeschaltete Geräte bleiben aus.";
+  if (mode === "summer") return "Sommer: Heizen und Geräte-Auto werden automatisch auf Kühlen umgestellt." + suffix;
+  if (mode === "winter") return "Winter: Kühlen und Geräte-Auto werden automatisch auf Heizen umgestellt." + suffix;
+  if (!climatePolicy || climatePolicy.restriction === "unavailable") {
+    return "Auto: Keine aktuelle Außentemperatur verfügbar. Die automatische Umschaltung wartet auf einen frischen Messwert (höchstens 5 Minuten alt).";
+  }
+  const allowed = climatePolicy.restriction === "heat" ? "nur Heizen"
+    : climatePolicy.restriction === "cool" ? "nur Kühlen" : "Heizen und Kühlen";
+  return `Auto: Außen ${formatTemp(climatePolicy.outdoorTemp)} → ${allowed}. Unter 18 °C nur Heizen, über 22 °C nur Kühlen; 18–22 °C beides.` + suffix;
+}
+
+function renderSeasonPolicy() {
+  const text = seasonPolicyText();
+  if (els.seasonModeHelp) els.seasonModeHelp.textContent = `${text} Änderungen werden sofort gespeichert.`;
+  if (els.seasonPolicyNotice) {
+    const errors = climatePolicy && climatePolicy.errors || [];
+    els.seasonPolicyNotice.hidden = appSettings.seasonMode === "manual";
+    const warning = appSettings.seasonMode === "auto" && climatePolicy && climatePolicy.restriction === "unavailable";
+    els.seasonPolicyNotice.className = `message policy-notice ${errors.length || warning ? "error" : "info"}`;
+    const details = errors.map((error) => {
+      const device = devices.find((item) => item.id === error.deviceId);
+      return `${device ? device.name : "Klimagerät"}: ${error.message}`;
+    });
+    els.seasonPolicyNotice.textContent = [text, ...details].join(" ");
+  }
+}
+
+async function saveSeasonMode() {
+  if (savingSeasonMode) return;
+  const requested = els.seasonModeSelect.value;
+  savingSeasonMode = true;
+  els.seasonModeSelect.disabled = true;
+  try {
+    const data = await apiFetch("/api/settings", { method: "POST", body: { seasonMode: requested } });
+    applyBackendSnapshot(data);
+  } catch (error) {
+    setMessage(friendlyError(error), "error");
+    // Settings may already be saved even if a network interruption lost the response.
+    await loadSettings().catch(() => {});
+  } finally {
+    savingSeasonMode = false;
+    els.seasonModeSelect.disabled = false;
+    els.seasonModeSelect.value = appSettings.seasonMode;
+    renderDevices();
   }
 }
 
@@ -910,7 +970,7 @@ function renderOutdoorSummary() {
     return;
   }
   const deviceWithOutdoor = devices.find((device) => Number.isFinite(statusOf(device).outdoorTemp));
-  const text = deviceWithOutdoor
+  const text = climatePolicy ? (Number.isFinite(climatePolicy.outdoorTemp) ? formatTemp(climatePolicy.outdoorTemp) : "--") : deviceWithOutdoor
     ? formatTemp(statusOf(deviceWithOutdoor).outdoorTemp)
     : "--";
   els.outdoorSummary.replaceChildren(
@@ -1105,6 +1165,7 @@ function applyBackendSnapshot(snapshot = {}) {
   if (snapshot.settings) {
     applyAppSettings(snapshot.settings);
   }
+  if (snapshot.policy) applyClimatePolicy(snapshot.policy);
 
   allDevices = snapshot.devices;
   devices = snapshot.devices
@@ -1112,6 +1173,12 @@ function applyBackendSnapshot(snapshot = {}) {
     .map(mergeServerDeviceState)
     .sort(compareDevices);
   renderDevices();
+}
+
+function applyClimatePolicy(policy) {
+  climatePolicy = policy;
+  appSettings.seasonMode = policy.mode;
+  if (els.seasonModeSelect && !savingSeasonMode) els.seasonModeSelect.value = policy.mode;
 }
 
 function openBackendEvents() {
@@ -1596,6 +1663,7 @@ function updateDeviceCard(card, device) {
   if (powerButton) {
     powerButton.classList.toggle("is-on", Boolean(status.operation));
     powerButton.setAttribute("aria-label", `${status.operation ? "Turn off" : "Turn on"} ${device.name}`);
+    powerButton.disabled = appSettings.seasonMode === "off" && !status.operation;
   }
 
   const sleepMenu = card.querySelector(".sleep-menu");
@@ -1607,6 +1675,7 @@ function updateDeviceCard(card, device) {
     const triggerButton = sleepMenu.querySelector(".sleep-trigger");
     if (triggerButton) {
       triggerButton.setAttribute("aria-label", `Sleep timer for ${device.name}: ${sleepSummaryText(device)}`);
+      triggerButton.disabled = appSettings.seasonMode === "off";
     }
   }
 
@@ -1619,7 +1688,7 @@ function updateDeviceCard(card, device) {
     const triggerButton = boostMenu.querySelector(".boost-trigger");
     if (triggerButton) {
       triggerButton.setAttribute("aria-label", `Boost for ${device.name}: ${boostSummaryText(device)}`);
-      triggerButton.disabled = !boostModeAvailable(status);
+      triggerButton.disabled = appSettings.seasonMode === "off" || !boostModeAvailable(status);
     }
   }
 
@@ -1631,6 +1700,12 @@ function updateDeviceCard(card, device) {
   const modeMenu = card.querySelector('.device-control-row .symbol-menu[data-menu-label="mode"]');
   if (modeMenu) {
     updateMenuSelection(modeMenu, status.operationMode, MODE_OPTIONS, "Mode");
+    modeMenu.querySelectorAll("[data-option-value]").forEach((button) => {
+      const allowed = !climatePolicy || climatePolicy.mode !== appSettings.seasonMode
+        || climatePolicy.allowedModes.includes(Number(button.dataset.optionValue));
+      button.disabled = !allowed;
+      button.title = allowed ? "" : "Durch die Betriebssteuerung gesperrt";
+    });
   }
   const fanMenu = card.querySelector('.device-control-row .symbol-menu[data-menu-label="fan"]');
   if (fanMenu) {
@@ -1702,6 +1777,7 @@ function renderDevices() {
   }
   els.deviceList.replaceChildren(...cards);
   renderOutdoorSummary();
+  renderSeasonPolicy();
   updateCountdownDisplays();
   syncDevicePolling();
   restoreScroll(scroll);
@@ -1799,6 +1875,7 @@ function moveEditItem(index, delta) {
 async function loadDevices(options = {}) {
   const query = options.includeHidden ? "?includeHidden=1" : "";
   const data = await apiFetch(`/api/devices${query}`);
+  if (data.policy) applyClimatePolicy(data.policy);
   const nextDevices = Array.isArray(data.devices) ? data.devices : [];
   if (options.includeHidden) {
     allDevices = nextDevices;
@@ -1806,6 +1883,7 @@ async function loadDevices(options = {}) {
     devices = nextDevices.filter((device) => !device.hidden);
   }
   renderDevices();
+  renderSeasonPolicy();
   return nextDevices;
 }
 
@@ -1888,6 +1966,7 @@ async function refreshDevice(deviceId, options = {}) {
         recordedAt: options.recordedAt || null,
       },
     });
+    if (data.policy) applyClimatePolicy(data.policy);
     if (data.device) {
       applyServerDevice(data.device, pendingDeviceWrites.has(deviceId));
       deviceErrors.delete(deviceId);
@@ -2339,6 +2418,7 @@ async function loadSettings() {
 }
 
 function bindEvents() {
+  if (els.seasonModeSelect) els.seasonModeSelect.addEventListener("change", saveSeasonMode);
   setButtonIcon(els.refreshAllButton, "refresh-cw", "Refresh all devices");
   setButtonIcon(els.editListButton, "pencil", "Edit device list");
   setButtonIcon(els.zoomMenuButton, "zoom-in", "Page zoom");

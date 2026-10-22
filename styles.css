@@ -871,6 +871,28 @@ label span,
   gap: 6px;
 }
 
+.season-mode-field {
+  display: grid;
+  gap: 6px;
+}
+
+.season-mode-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.policy-notice {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.popup-menu button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .manual-add-form {
   display: grid;
   gap: 10px;

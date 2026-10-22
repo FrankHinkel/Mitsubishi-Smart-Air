@@ -63,6 +63,7 @@
         </div>
 
         <p class="message" id="globalMessage" hidden></p>
+        <p class="message policy-notice" id="seasonPolicyNotice" role="status" hidden></p>
 
         <section class="empty-state" id="emptyState" hidden>
           <div>
@@ -91,6 +92,17 @@
               <span>Title</span>
               <input id="appTitleInput" name="appTitle" autocomplete="off" placeholder="Smart Air">
             </label>
+            <label class="season-mode-field" for="seasonModeSelect">
+              <span>Betriebssteuerung</span>
+              <select id="seasonModeSelect" aria-describedby="seasonModeHelp">
+                <option value="manual">Manuell</option>
+                <option value="off">Aus</option>
+                <option value="summer">Sommer</option>
+                <option value="auto">Auto</option>
+                <option value="winter">Winter</option>
+              </select>
+            </label>
+            <p class="season-mode-help" id="seasonModeHelp">Manuell greift nicht ein. Änderungen werden sofort gespeichert.</p>
           </section>
 
           <form class="manual-add-form" id="manualAddForm">

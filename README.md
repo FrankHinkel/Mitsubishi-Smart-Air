@@ -180,6 +180,29 @@ Error codes:
 
 - Temporary Boost mode for Cool and Heat with automatic restore after the selected countdown
 - Separate vertical and horizontal louver controls plus a 3D preset that sets both axes together
+- Persistent seasonal operating control under `Edit devices` → `Betriebssteuerung`
+
+## Seasonal operating control
+
+The global setting is saved immediately and applies to all visible devices:
+
+| Setting | Behavior |
+| --- | --- |
+| Manuell | No intervention; the default for existing installations. |
+| Aus | Keeps devices off, cancels Sleep/Boost, and prevents timer or app starts. |
+| Sommer | Changes heating and device Auto to cooling. |
+| Winter | Changes cooling and device Auto to heating. |
+| Auto | Below 18 °C outside: heating only; above 22 °C: cooling only; from 18 through 22 °C: both. |
+
+Fan and Dry remain available except in Aus. Corrections preserve target temperature, airflow and louver settings, and never start a stopped device. Device Auto is also restricted whenever only heating or cooling is allowed, so it cannot choose the opposite mode internally.
+
+Auto uses the median of the visible devices' reported **outdoor** temperatures, with readings no older than five minutes. If no fresh outdoor reading exists, automatic mode correction pauses and the UI displays a warning. Sommer, Winter and Aus remain independent of outdoor readings.
+
+The server enforces the setting on app commands and status refreshes, including changes made with an infrared remote. With the default background poll interval, remote changes are detected at the next 60-second poll, plus device communication time. The local server must remain running; no open browser is required. Failed corrections are shown and retried on subsequent refreshes.
+
+Authenticated clients can change the setting with `POST /api/settings` and a JSON body such as `{"seasonMode":"summer"}`. Supported values are `manual`, `off`, `summer`, `auto`, and `winter`. Device snapshots include the current `policy`; title-only saves preserve the seasonal setting.
+
+Run `npm run check` and `npm test` for syntax checks and tests. Integration tests start an isolated localhost server with simulated devices and a temporary database; they do not communicate with real air conditioners.
 
 ## WF-RAC notes
 
